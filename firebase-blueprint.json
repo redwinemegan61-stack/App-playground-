@@ -1,0 +1,169 @@
+{
+  "entities": {
+    "PublishedApp": {
+      "title": "PublishedApp",
+      "description": "An interactive application or game published to the App and Game Playground catalog.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Display title of the app or game.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Short single-line summary shown in catalog cards.",
+          "minLength": 4,
+          "maxLength": 140
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed overview, instructions, and release notes.",
+          "minLength": 10,
+          "maxLength": 1500
+        },
+        "category": {
+          "type": "string",
+          "description": "Primary catalog category.",
+          "enum": ["Game", "Creative App", "Developer Tool", "Utility", "Simulation"],
+          "maxLength": 32
+        },
+        "playType": {
+          "type": "string",
+          "description": "Interactive runtime engine or template used to launch the experience.",
+          "enum": ["starlight-tactics", "pulsepad-synth", "botanica-word", "patchforge-vision", "custom-embed"],
+          "maxLength": 32
+        },
+        "externalUrl": {
+          "type": "string",
+          "description": "Optional external web URL or sandbox source for custom embeds.",
+          "maxLength": 500
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version string such as 1.0.0.",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the publisher.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Display name of the publisher.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Whether the app is publicly listed in the storefront."
+        },
+        "playsCount": {
+          "type": "integer",
+          "description": "Total interactive launch sessions."
+        },
+        "likesCount": {
+          "type": "integer",
+          "description": "Total community upvotes."
+        },
+        "aiVisualSummary": {
+          "type": "string",
+          "description": "Gemini 4 Argon visual analysis or code diagnostic summary attached to the release.",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the app was published."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the app was last updated."
+        }
+      },
+      "required": [
+        "title",
+        "tagline",
+        "description",
+        "category",
+        "playType",
+        "externalUrl",
+        "version",
+        "authorId",
+        "authorName",
+        "isPublic",
+        "playsCount",
+        "likesCount",
+        "aiVisualSummary",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AppReview": {
+      "title": "AppReview",
+      "description": "Community feedback and rating submitted for a published app or game.",
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "description": "Parent PublishedApp document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the reviewer.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Display name of the reviewer.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "rating": {
+          "type": "integer",
+          "description": "Star rating from 1 to 5."
+        },
+        "comment": {
+          "type": "string",
+          "description": "Review text.",
+          "minLength": 2,
+          "maxLength": 600
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the review was created."
+        }
+      },
+      "required": [
+        "appId",
+        "authorId",
+        "authorName",
+        "rating",
+        "comment",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/apps/{appId}": {
+      "schema": { "$ref": "#/entities/PublishedApp" },
+      "description": "Primary collection of published applications and games."
+    },
+    "/apps/{appId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/AppReview" },
+      "description": "Subcollection of user reviews and ratings for a specific app."
+    }
+  }
+}

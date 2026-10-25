@@ -1,0 +1,6 @@
+{
+  "name": "App and Game Playground",
+  "description": "An interactive publishing platform and arcade to publish, discover, play, and visually analyze web apps and indie games powered by Firebase and Gemini 4 Argon.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

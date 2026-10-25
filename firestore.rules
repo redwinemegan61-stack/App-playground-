@@ -1,0 +1,196 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'redwinemegan61@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprint: PublishedApp
+    function isValidPublishedApp(data) {
+      return data.keys().hasAll([
+        'title', 'tagline', 'description', 'category', 'playType',
+        'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
+        'playsCount', 'likesCount', 'aiVisualSummary', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title', 'tagline', 'description', 'category', 'playType',
+        'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
+        'playsCount', 'likesCount', 'aiVisualSummary', 'createdAt', 'updatedAt'
+      ]) &&
+      data.title is string && data.title.size() >= 2 && data.title.size() <= 80 &&
+      data.tagline is string && data.tagline.size() >= 4 && data.tagline.size() <= 140 &&
+      data.description is string && data.description.size() >= 10 && data.description.size() <= 1500 &&
+      data.category is string && data.category.size() <= 32 &&
+      data.category in ['Game', 'Creative App', 'Developer Tool', 'Utility', 'Simulation'] &&
+      data.playType is string && data.playType.size() <= 32 &&
+      data.playType in ['starlight-tactics', 'pulsepad-synth', 'botanica-word', 'patchforge-vision', 'custom-embed'] &&
+      data.externalUrl is string && data.externalUrl.size() <= 500 &&
+      data.version is string && data.version.size() >= 1 && data.version.size() <= 24 &&
+      data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+      data.authorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+      data.isPublic is bool &&
+      data.playsCount is int && data.playsCount >= 0 &&
+      data.likesCount is int && data.likesCount >= 0 &&
+      data.aiVisualSummary is string && data.aiVisualSummary.size() <= 1000 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: AppReview
+    function isValidAppReview(data) {
+      return data.keys().hasAll([
+        'appId', 'authorId', 'authorName', 'rating', 'comment', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'appId', 'authorId', 'authorName', 'rating', 'comment', 'createdAt'
+      ]) &&
+      data.appId is string && data.appId.size() >= 1 && data.appId.size() <= 128 &&
+      data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+      data.authorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+      data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+      data.comment is string && data.comment.size() >= 2 && data.comment.size() <= 600 &&
+      data.createdAt is timestamp;
+    }
+
+    // Connection health check endpoint (read-only)
+    match /test/{docId} {
+      allow get: if isValidId(docId) && docId == 'connection';
+      allow list, create, update, delete: if false;
+    }
+
+    // Admins lookup collection
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && request.auth.uid == adminId;
+      allow list, create, update, delete: if false;
+    }
+
+    // Primary Collection: Published Apps
+    match /apps/{appId} {
+      allow get: if isValidId(appId) && (
+        existing().isPublic == true ||
+        (isSignedIn() && existing().authorId == request.auth.uid) ||
+        isAdmin()
+      );
+
+      allow list: if existing().isPublic == true || (isSignedIn() && existing().authorId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(appId) &&
+        isValidPublishedApp(incoming()) &&
+        incoming().authorId == request.auth.uid &&
+        incoming().playsCount == 0 &&
+        incoming().likesCount == 0 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(appId) &&
+        isValidPublishedApp(incoming()) &&
+        incoming().authorId == existing().authorId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Action 1: Publisher edits metadata
+          (existing().authorId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'tagline', 'description', 'category', 'playType',
+              'externalUrl', 'version', 'isPublic', 'aiVisualSummary', 'updatedAt'
+            ])
+          ) ||
+          // Action 2: Community increments play counter by 1
+          (existing().isPublic == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['playsCount', 'updatedAt']) &&
+            incoming().playsCount == existing().playsCount + 1
+          ) ||
+          // Action 3: Community increments like counter by 1
+          (existing().isPublic == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'updatedAt']) &&
+            incoming().likesCount == existing().likesCount + 1
+          )
+        );
+
+      allow delete: if isVerifiedUser() &&
+        isValidId(appId) && (
+          existing().authorId == request.auth.uid ||
+          isAdmin()
+        );
+
+      // Subcollection: Reviews
+      match /reviews/{reviewId} {
+        allow get: if isValidId(appId) && isValidId(reviewId) &&
+          exists(/databases/$(database)/documents/apps/$(appId)) && (
+            get(/databases/$(database)/documents/apps/$(appId)).data.isPublic == true ||
+            (isSignedIn() && existing().authorId == request.auth.uid) ||
+            isAdmin()
+          );
+
+        allow list: if existing().appId == appId && existing().rating >= 1;
+
+        allow create: if isVerifiedUser() &&
+          isValidId(appId) &&
+          isValidId(reviewId) &&
+          isValidAppReview(incoming()) &&
+          incoming().appId == appId &&
+          incoming().authorId == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          exists(/databases/$(database)/documents/apps/$(appId)) &&
+          get(/databases/$(database)/documents/apps/$(appId)).data.isPublic == true;
+
+        allow update: if isVerifiedUser() &&
+          isValidId(appId) &&
+          isValidId(reviewId) &&
+          isValidAppReview(incoming()) &&
+          incoming().appId == existing().appId &&
+          incoming().authorId == existing().authorId &&
+          incoming().createdAt == existing().createdAt &&
+          exists(/databases/$(database)/documents/apps/$(appId)) && (
+            isAdmin() ||
+            (existing().authorId == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment'])
+            )
+          );
+
+        allow delete: if isVerifiedUser() &&
+          isValidId(appId) &&
+          isValidId(reviewId) &&
+          exists(/databases/$(database)/documents/apps/$(appId)) && (
+            existing().authorId == request.auth.uid ||
+            isAdmin()
+          );
+      }
+    }
+  }
+}

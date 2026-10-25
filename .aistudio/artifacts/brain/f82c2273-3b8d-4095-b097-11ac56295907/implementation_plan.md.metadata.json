@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for PatchForge Studio, a unified open-source issue triage, multimodal image debugger powered by Gemini 4 Argon, and interactive patch generator with diff verification and downloadable .patch exports.",
+  "updatedAt":  "2026-10-25T07:39:21.979508755Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
