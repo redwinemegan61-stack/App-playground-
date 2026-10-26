@@ -12,6 +12,8 @@ import {
   Check,
   Sparkles,
   ExternalLink,
+  Zap,
+  Crown,
 } from 'lucide-react';
 import { PlaygroundAppItem, ISSUE_3060_PATCH } from '../data/defaultApps';
 
@@ -61,12 +63,16 @@ const INITIAL_UNITS: ShipUnit[] = [
   { id: 'ai2', name: 'Dreadnought-Omega', team: 'ai', x: 5, y: 3, hp: 130, maxHp: 130, shield: 30 },
 ];
 
-export const StarlightTacticsGame: React.FC = () => {
+export const StarlightTacticsGame: React.FC<{
+  hasSupporterPass?: boolean;
+  onUnlockClick?: () => void;
+}> = ({ hasSupporterPass = false, onUnlockClick }) => {
+  const maxApPerTurn = hasSupporterPass ? 4 : 3;
   const [gameState, setGameState] = useState<GameState>('TITLE_MENU');
   const [units, setUnits] = useState<ShipUnit[]>(INITIAL_UNITS);
   const [selectedId, setSelectedId] = useState<string>('p1');
   const [turn, setTurn] = useState<'player' | 'ai'>('player');
-  const [actionPoints, setActionPoints] = useState<number>(3);
+  const [actionPoints, setActionPoints] = useState<number>(maxApPerTurn);
   const [roundNum, setRoundNum] = useState<number>(1);
   const [combatLog, setCombatLog] = useState<string[]>([
     'Sector 04 initialized. Select a friendly corvette and move or fire lasers.',
@@ -74,12 +80,22 @@ export const StarlightTacticsGame: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   const startNewGame = () => {
-    setUnits(INITIAL_UNITS.map((u) => ({ ...u })));
+    const bonusShield = hasSupporterPass ? 30 : 0;
+    setUnits(
+      INITIAL_UNITS.map((u) => ({
+        ...u,
+        shield: u.team === 'player' ? u.shield + bonusShield : u.shield,
+      }))
+    );
     setSelectedId('p1');
     setTurn('player');
-    setActionPoints(3);
+    setActionPoints(maxApPerTurn);
     setRoundNum(1);
-    setCombatLog(['Command link established. 3 Action Points available this turn.']);
+    setCombatLog([
+      hasSupporterPass
+        ? 'Supporter Overdrive Active: 4 AP per turn, +30 Fleet Shields, and Heavy Ion Cannon unlocked!'
+        : 'Command link established. 3 Action Points available this turn.',
+    ]);
     setGameState('PLAYING');
     if (soundEnabled) playSynthTone(523.25, 180, 'triangle');
   };
@@ -101,7 +117,6 @@ export const StarlightTacticsGame: React.FC = () => {
 
         const logs: string[] = [];
         for (const ai of aiShips) {
-          // Find nearest player ship
           let target = pShips[0];
           let bestDist = Math.abs(ai.x - target.x) + Math.abs(ai.y - target.y);
           for (const p of pShips) {
@@ -113,14 +128,12 @@ export const StarlightTacticsGame: React.FC = () => {
           }
 
           if (bestDist <= 2) {
-            // Fire at player target
             const dmg = 28;
             const absorbed = Math.min(target.shield, dmg);
             target.shield -= absorbed;
             target.hp = Math.max(0, target.hp - (dmg - absorbed));
             logs.push(`${ai.name} fired plasma volley at ${target.name} (-${dmg} DMG).`);
           } else {
-            // Step closer
             const dx = target.x < ai.x ? -1 : target.x > ai.x ? 1 : 0;
             const dy = target.y < ai.y ? -1 : target.y > ai.y ? 1 : 0;
             const nx = Math.max(0, Math.min(5, ai.x + dx));
@@ -139,9 +152,9 @@ export const StarlightTacticsGame: React.FC = () => {
           setGameState('GAME_OVER');
         } else {
           setTurn('player');
-          setActionPoints(3);
+          setActionPoints(maxApPerTurn);
           setRoundNum((r) => r + 1);
-          if ( !next.find((u) => u.id === selectedId && u.hp > 0) ) {
+          if (!next.find((u) => u.id === selectedId && u.hp > 0)) {
             setSelectedId(remainingPlayers[0].id);
           }
         }
@@ -154,7 +167,7 @@ export const StarlightTacticsGame: React.FC = () => {
     }, 650);
 
     return () => clearTimeout(timer);
-  }, [gameState, turn, selectedId, soundEnabled]);
+  }, [gameState, turn, selectedId, soundEnabled, maxApPerTurn]);
 
   const handleCellClick = (x: number, y: number) => {
     if (gameState !== 'PLAYING' || turn !== 'player') return;
@@ -171,7 +184,6 @@ export const StarlightTacticsGame: React.FC = () => {
 
     const dist = Math.abs(selectedUnit.x - x) + Math.abs(selectedUnit.y - y);
 
-    // Attack enemy within range 2
     if (clickedUnit && clickedUnit.team === 'ai') {
       if (dist <= 2) {
         const dmg = 35;
@@ -205,11 +217,8 @@ export const StarlightTacticsGame: React.FC = () => {
       return;
     }
 
-    // Move to empty adjacent cell
     if (!clickedUnit && dist === 1) {
-      setUnits((prev) =>
-        prev.map((u) => (u.id === selectedUnit.id ? { ...u, x, y } : u))
-      );
+      setUnits((prev) => prev.map((u) => (u.id === selectedUnit.id ? { ...u, x, y } : u)));
       setCombatLog((old) =>
         [`${selectedUnit.name} thrusters engaged -> Sector (${x + 1}, ${y + 1}).`, ...old].slice(0, 6)
       );
@@ -223,10 +232,46 @@ export const StarlightTacticsGame: React.FC = () => {
   const handleBoostShields = () => {
     if (gameState !== 'PLAYING' || turn !== 'player' || !selectedUnit || actionPoints <= 0) return;
     setUnits((prev) =>
-      prev.map((u) => (u.id === selectedUnit.id ? { ...u, shield: Math.min(60, u.shield + 20) } : u))
+      prev.map((u) => (u.id === selectedUnit.id ? { ...u, shield: Math.min(90, u.shield + 20) } : u))
     );
     setCombatLog((old) => [`${selectedUnit.name} boosted deflector shields (+20 SHD).`, ...old].slice(0, 6));
     if (soundEnabled) playSynthTone(587.33, 150, 'sine');
+    const nextAp = actionPoints - 1;
+    setActionPoints(nextAp);
+    if (nextAp === 0) setTurn('ai');
+  };
+
+  // Supporter Pass Exclusive Perk: Heavy Ion Cannon (hits nearest enemy anywhere on grid for 55 DMG)
+  const handleSupporterIonCannon = () => {
+    if (!hasSupporterPass) {
+      if (onUnlockClick) onUnlockClick();
+      return;
+    }
+    if (gameState !== 'PLAYING' || turn !== 'player' || !selectedUnit || actionPoints <= 0) return;
+    const targetAi = units.find((u) => u.team === 'ai' && u.hp > 0);
+    if (!targetAi) return;
+
+    const dmg = 55;
+    setUnits((prev) => {
+      const next = prev.map((u) => {
+        if (u.id !== targetAi.id) return u;
+        const absorbed = Math.min(u.shield, dmg);
+        const remDmg = dmg - absorbed;
+        return {
+          ...u,
+          shield: u.shield - absorbed,
+          hp: Math.max(0, u.hp - remDmg),
+        };
+      });
+      if (!next.some((u) => u.team === 'ai' && u.hp > 0)) {
+        setGameState('GAME_OVER');
+      }
+      return next;
+    });
+    setCombatLog((old) =>
+      [`[SUPPORTER OVERDRIVE] ${selectedUnit.name} fired Orbital Ion Beam at ${targetAi.name} (-${dmg} DMG)!`, ...old].slice(0, 6)
+    );
+    if (soundEnabled) playSynthTone(880, 240, 'sawtooth');
     const nextAp = actionPoints - 1;
     setActionPoints(nextAp);
     if (nextAp === 0) setTurn('ai');
@@ -236,13 +281,19 @@ export const StarlightTacticsGame: React.FC = () => {
     return (
       <div className="bg-[#0A192F] border border-slate-800 rounded-xl p-8 text-center space-y-6">
         <div className="space-y-2 max-w-xl mx-auto">
-          <p className="text-xs font-mono text-sky-400">2D TACTICAL FLEET COMMAND · STATE MACHINE VERIFIED</p>
+          <p className="text-xs font-mono text-sky-400">
+            2D TACTICAL FLEET COMMAND · {hasSupporterPass ? 'SUPPORTER OVERDRIVE UNLOCKED' : 'STANDARD EDITION'}
+          </p>
           <h3 className="text-2xl font-bold font-display text-white">Starlight Tactics: Sector Zero</h3>
           <p className="text-sm text-slate-300 leading-relaxed">
-            Command two vanguard starships on a 6×5 sector grid. Each turn grants 3 Action Points (AP). Click an adjacent
-            tile (distance 1) to maneuver, click a hostile vessel within range 2 to fire plasma cannons, or recharge
-            deflector shields.
+            Command two vanguard starships on a 6×5 sector grid. Click an adjacent tile (distance 1) to maneuver, click
+            a hostile vessel within range 2 to fire plasma cannons, or recharge deflector shields.
           </p>
+          {hasSupporterPass && (
+            <p className="text-xs font-mono text-amber-300">
+              ★ Supporter Pass Active: 4 AP/Turn, +30 Starting Shields &amp; Long-Range Ion Cannon Enabled
+            </p>
+          )}
         </div>
         <div className="flex justify-center gap-4">
           <button
@@ -259,16 +310,15 @@ export const StarlightTacticsGame: React.FC = () => {
 
   return (
     <div className="bg-[#0A192F] border border-slate-800 rounded-xl p-5 space-y-4">
-      {/* Unobtrusive Top HUD */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800">
         <div className="flex items-center gap-4 text-xs font-mono tabular-nums">
           <span className="text-slate-300">ROUND {roundNum}</span>
           <span aria-hidden="true" className="text-slate-600">·</span>
           <span className={turn === 'player' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
-            {turn === 'player' ? `PLAYER TURN (AP: ${actionPoints}/3)` : 'AI FLEET MANEUVERING...'}
+            {turn === 'player' ? `PLAYER TURN (AP: ${actionPoints}/${maxApPerTurn})` : 'AI FLEET MANEUVERING...'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setSoundEnabled((s) => !s)}
             className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-900/80 border border-slate-700 rounded-md hover:text-white transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
@@ -283,6 +333,18 @@ export const StarlightTacticsGame: React.FC = () => {
           >
             <Shield className="w-3.5 h-3.5" />
             Boost Shield (1 AP)
+          </button>
+          <button
+            onClick={handleSupporterIonCannon}
+            disabled={hasSupporterPass && (turn !== 'player' || actionPoints <= 0 || !selectedUnit)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+              hasSupporterPass
+                ? 'bg-amber-950/80 border-amber-500/70 text-amber-200 hover:bg-amber-900'
+                : 'bg-slate-900 border-amber-700/50 text-amber-300 hover:bg-slate-800'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            {hasSupporterPass ? 'Ion Cannon (55 DMG · 1 AP)' : 'Unlock Ion Cannon (Supporter Pass)'}
           </button>
           <button
             onClick={() => {
@@ -358,7 +420,6 @@ export const StarlightTacticsGame: React.FC = () => {
         )}
       </div>
 
-      {/* Combat Telemetry & Victory/Defeat Overlay */}
       {gameState === 'GAME_OVER' ? (
         <div className="bg-slate-900 border border-indigo-500/50 rounded-lg p-5 flex items-center justify-between">
           <div>
@@ -407,7 +468,17 @@ const INITIAL_GRID: boolean[][] = [
   [true, true, false, true, true, false, true, true, true, true, false, true, true, false, true, true],
 ];
 
-export const PulsePadSynthApp: React.FC = () => {
+const SUPPORTER_ARPEGGIO_GRID: boolean[][] = [
+  [true, false, true, false, true, false, true, false, true, false, true, false, true, true, false, true],
+  [false, true, false, true, false, true, true, false, false, true, false, true, true, false, true, false],
+  [true, false, false, true, false, false, true, false, true, false, false, true, false, true, true, true],
+  [true, true, true, true, false, true, true, true, true, true, true, true, false, true, true, true],
+];
+
+export const PulsePadSynthApp: React.FC<{
+  hasSupporterPass?: boolean;
+  onUnlockClick?: () => void;
+}> = ({ hasSupporterPass = false, onUnlockClick }) => {
   const [grid, setGrid] = useState<boolean[][]>(INITIAL_GRID);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [bpm, setBpm] = useState<number>(120);
@@ -439,10 +510,25 @@ export const PulsePadSynthApp: React.FC = () => {
     playSynthTone(TRACK_INFO[row].freq, 110, TRACK_INFO[row].wave, 0.06);
   };
 
+  const handleExportPatternJson = () => {
+    if (!hasSupporterPass) {
+      if (onUnlockClick) onUnlockClick();
+      return;
+    }
+    const payload = JSON.stringify({ bpm, tracks: TRACK_INFO.map((t) => t.name), pattern: grid }, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pulsepad-sequence-${bpm}bpm.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setIsPlaying((p) => !p)}
             className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer ${
@@ -459,10 +545,25 @@ export const PulsePadSynthApp: React.FC = () => {
             Reset Pattern
           </button>
           <button
-            onClick={() => setGrid(TRACK_INFO.map(() => Array(16).fill(false)))}
-            className="px-3 py-2 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-700 rounded-lg hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            onClick={() => {
+              if (!hasSupporterPass) {
+                if (onUnlockClick) onUnlockClick();
+                return;
+              }
+              setGrid(SUPPORTER_ARPEGGIO_GRID.map((r) => [...r]));
+              setBpm(136);
+            }}
+            className="px-3 py-2 text-xs font-medium text-amber-200 bg-amber-950/70 border border-amber-700/60 rounded-lg hover:bg-amber-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Clear Grid
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            {hasSupporterPass ? 'Load Cyber-Arpeggio Preset' : 'Unlock Pro Arpeggio (License / Pass)'}
+          </button>
+          <button
+            onClick={handleExportPatternJson}
+            className="px-3 py-2 text-xs font-medium text-emerald-200 bg-emerald-950/70 border border-emerald-700/60 rounded-lg hover:bg-emerald-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            {hasSupporterPass ? 'Export Loop JSON' : 'Unlock JSON Export'}
           </button>
         </div>
 
@@ -536,7 +637,10 @@ const PUZZLE_GRID: string[][] = [
   ['C', 'L', 'E', 'M', 'O', 'S', 'S'],
 ];
 
-export const BotanicaWordGame: React.FC = () => {
+export const BotanicaWordGame: React.FC<{
+  hasSupporterPass?: boolean;
+  onUnlockClick?: () => void;
+}> = ({ hasSupporterPass = false, onUnlockClick }) => {
   const [foundWords, setFoundWords] = useState<string[]>([]);
   const [selectedCells, setSelectedCells] = useState<string[]>([]);
   const [hintTier, setHintTier] = useState<number>(0);
@@ -548,7 +652,6 @@ export const BotanicaWordGame: React.FC = () => {
       const key = `${r}-${c}`;
       setSelectedCells((prev) => {
         const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-        // Check if any target word is completely selected
         for (const target of BOTANICAL_WORDS) {
           if (foundWords.includes(target.word)) continue;
           const targetKeys = Array.from({ length: target.word.length }).map((_, idx) =>
@@ -565,6 +668,23 @@ export const BotanicaWordGame: React.FC = () => {
     [foundWords]
   );
 
+  const handleSupporterInstantSolve = () => {
+    if (!hasSupporterPass) {
+      if (onUnlockClick) onUnlockClick();
+      return;
+    }
+    const nextUnfound = BOTANICAL_WORDS.find((w) => !foundWords.includes(w.word));
+    if (!nextUnfound) return;
+    const targetKeys = Array.from({ length: nextUnfound.word.length }).map((_, idx) =>
+      nextUnfound.direction === 'Horizontal'
+        ? `${nextUnfound.row}-${nextUnfound.col + idx}`
+        : `${nextUnfound.row + idx}-${nextUnfound.col}`
+    );
+    setSelectedCells((prev) => Array.from(new Set([...prev, ...targetKeys])));
+    setFoundWords((fw) => [...fw, nextUnfound.word]);
+    playSynthTone(659.25, 220, 'triangle');
+  };
+
   const resetPuzzle = () => {
     setFoundWords([]);
     setSelectedCells([]);
@@ -580,13 +700,20 @@ export const BotanicaWordGame: React.FC = () => {
             Click letter tiles to highlight hidden botanical names ({foundWords.length}/{BOTANICAL_WORDS.length} found)
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setHintTier((t) => (t % 4) + 1)}
             className="px-3.5 py-2 text-xs font-semibold text-emerald-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <HelpCircle className="w-3.5 h-3.5" />
             Progressive Hint (Tier {hintTier}/4)
+          </button>
+          <button
+            onClick={handleSupporterInstantSolve}
+            className="px-3.5 py-2 text-xs font-semibold text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Crown className="w-3.5 h-3.5" />
+            {hasSupporterPass ? 'Auto-Reveal Word' : 'Unlock Auto-Reveal (Supporter Pass)'}
           </button>
           <button
             onClick={resetPuzzle}
@@ -597,16 +724,29 @@ export const BotanicaWordGame: React.FC = () => {
         </div>
       </div>
 
-      {/* 4-Tier Progressive Hint Banner */}
       {hintTier > 0 && (
         <div className="bg-emerald-950/90 border border-emerald-700/70 rounded-lg p-3 text-xs text-emerald-100 space-y-1">
           <div className="font-mono font-semibold text-emerald-300">
             ACTIVE HINT FOR &ldquo;{activeTarget.word}&rdquo; — TIER {hintTier} OF 4
           </div>
-          {hintTier >= 1 && <div>1. First &amp; Last Letters: Starts with &ldquo;{activeTarget.word[0]}&rdquo;, ends with &ldquo;{activeTarget.word[activeTarget.word.length - 1]}&rdquo; ({activeTarget.clue})</div>}
-          {hintTier >= 2 && <div>2. Orientation Clue: Arranged {activeTarget.direction}ly across row {activeTarget.row + 1}</div>}
+          {hintTier >= 1 && (
+            <div>
+              1. First &amp; Last Letters: Starts with &ldquo;{activeTarget.word[0]}&rdquo;, ends with &ldquo;
+              {activeTarget.word[activeTarget.word.length - 1]}&rdquo; ({activeTarget.clue})
+            </div>
+          )}
+          {hintTier >= 2 && (
+            <div>
+              2. Orientation Clue: Arranged {activeTarget.direction}ly across row {activeTarget.row + 1}
+            </div>
+          )}
           {hintTier >= 3 && <div>3. Column Indicator: Begins at Column {activeTarget.col + 1}</div>}
-          {hintTier >= 4 && <div>4. First Letter Highlighted on Board: Tile ({activeTarget.row + 1}, {activeTarget.col + 1}) is outlined in gold</div>}
+          {hintTier >= 4 && (
+            <div>
+              4. First Letter Highlighted on Board: Tile ({activeTarget.row + 1}, {activeTarget.col + 1}) is outlined in
+              gold
+            </div>
+          )}
         </div>
       )}
 
@@ -616,8 +756,7 @@ export const BotanicaWordGame: React.FC = () => {
             rowLetters.map((letter, cIdx) => {
               const key = `${rIdx}-${cIdx}`;
               const isSelected = selectedCells.includes(key);
-              const isFirstLetterHint =
-                hintTier >= 4 && activeTarget.row === rIdx && activeTarget.col === cIdx;
+              const isFirstLetterHint = hintTier >= 4 && activeTarget.row === rIdx && activeTarget.col === cIdx;
 
               return (
                 <button
@@ -625,7 +764,9 @@ export const BotanicaWordGame: React.FC = () => {
                   onClick={() => toggleCell(rIdx, cIdx)}
                   className={`h-12 rounded-lg font-display text-lg font-bold transition-transform duration-100 cursor-pointer ${
                     isSelected
-                      ? 'bg-emerald-400 text-emerald-950 scale-[1.03]'
+                      ? hasSupporterPass
+                        ? 'bg-amber-400 text-slate-950 scale-[1.03]'
+                        : 'bg-emerald-400 text-emerald-950 scale-[1.03]'
                       : isFirstLetterHint
                         ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-200'
                         : 'bg-[#163B31] text-white border border-emerald-800/80 hover:border-emerald-500'
@@ -695,7 +836,11 @@ const SCHEMA_TEST_CASES = [
   },
 ];
 
-export const PatchForgeVisionApp: React.FC<{ onOpenVisionTab?: () => void }> = ({ onOpenVisionTab }) => {
+export const PatchForgeVisionApp: React.FC<{
+  onOpenVisionTab?: () => void;
+  hasSupporterPass?: boolean;
+  onUnlockClick?: () => void;
+}> = ({ onOpenVisionTab, hasSupporterPass = false, onUnlockClick }) => {
   const [selectedCaseIdx, setSelectedCaseIdx] = useState<number>(0);
   const [copiedPatch, setCopiedPatch] = useState<boolean>(false);
 
@@ -728,7 +873,7 @@ export const PatchForgeVisionApp: React.FC<{ onOpenVisionTab?: () => void }> = (
             Callable Tools Optional Scalar Parameter Schema Sandbox &amp; Diff Viewer
           </h4>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {onOpenVisionTab && (
             <button
               onClick={onOpenVisionTab}
@@ -752,10 +897,18 @@ export const PatchForgeVisionApp: React.FC<{ onOpenVisionTab?: () => void }> = (
             <Download className="w-3.5 h-3.5" />
             Download fix-issue-3060.patch
           </button>
+          {!hasSupporterPass && onUnlockClick && (
+            <button
+              onClick={onUnlockClick}
+              className="px-3 py-2 text-xs font-medium text-amber-200 bg-amber-950/70 border border-amber-700/60 rounded-lg hover:bg-amber-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+              Unlock Pro Test Suite Bundle
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Interactive Signature Selector */}
       <div className="space-y-3">
         <div className="text-xs font-mono text-slate-400">
           SELECT PYTHON PARAMETER SIGNATURE TO COMPARE GENERATED JSON SCHEMA:
@@ -799,7 +952,6 @@ export const PatchForgeVisionApp: React.FC<{ onOpenVisionTab?: () => void }> = (
         </div>
       </div>
 
-      {/* Unified Diff Viewer */}
       <div className="bg-[#090D16] border border-slate-800 rounded-lg overflow-hidden">
         <div className="px-4 py-2 bg-slate-900/90 border-b border-slate-800 text-xs font-mono text-slate-400 flex items-center justify-between">
           <span>google/genai/_automatic_function_calling_util.py</span>
@@ -818,19 +970,27 @@ export const PatchForgeVisionApp: React.FC<{ onOpenVisionTab?: () => void }> = (
 // ============================================================================
 export const PlayableStage: React.FC<{
   app: PlaygroundAppItem;
+  hasSupporterPass?: boolean;
+  onUnlockClick?: () => void;
   onOpenVisionTab?: () => void;
-}> = ({ app, onOpenVisionTab }) => {
+}> = ({ app, hasSupporterPass = false, onUnlockClick, onOpenVisionTab }) => {
   if (app.playType === 'starlight-tactics') {
-    return <StarlightTacticsGame />;
+    return <StarlightTacticsGame hasSupporterPass={hasSupporterPass} onUnlockClick={onUnlockClick} />;
   }
   if (app.playType === 'pulsepad-synth') {
-    return <PulsePadSynthApp />;
+    return <PulsePadSynthApp hasSupporterPass={hasSupporterPass} onUnlockClick={onUnlockClick} />;
   }
   if (app.playType === 'botanica-word') {
-    return <BotanicaWordGame />;
+    return <BotanicaWordGame hasSupporterPass={hasSupporterPass} onUnlockClick={onUnlockClick} />;
   }
   if (app.playType === 'patchforge-vision') {
-    return <PatchForgeVisionApp onOpenVisionTab={onOpenVisionTab} />;
+    return (
+      <PatchForgeVisionApp
+        onOpenVisionTab={onOpenVisionTab}
+        hasSupporterPass={hasSupporterPass}
+        onUnlockClick={onUnlockClick}
+      />
+    );
   }
 
   return (
@@ -854,7 +1014,7 @@ export const PlayableStage: React.FC<{
         </div>
       ) : (
         <div className="pt-2">
-          <StarlightTacticsGame />
+          <StarlightTacticsGame hasSupporterPass={hasSupporterPass} onUnlockClick={onUnlockClick} />
         </div>
       )}
     </div>

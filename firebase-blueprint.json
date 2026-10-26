@@ -2,7 +2,7 @@
   "entities": {
     "PublishedApp": {
       "title": "PublishedApp",
-      "description": "An interactive application or game published to the App and Game Playground catalog.",
+      "description": "An interactive application or game published to the App and Game Playground catalog, including pricing and publisher questionnaire metadata.",
       "type": "object",
       "properties": {
         "title": {
@@ -71,6 +71,34 @@
           "type": "integer",
           "description": "Total community upvotes."
         },
+        "priceCents": {
+          "type": "integer",
+          "description": "Price in USD cents (0 for free apps, 100 to 99999 for paid apps)."
+        },
+        "monetizationModel": {
+          "type": "string",
+          "description": "Selected monetization model from the publisher questionnaire.",
+          "enum": ["Free to Play", "One-Time Purchase", "Creator Supporter Pass"],
+          "maxLength": 40
+        },
+        "ageRating": {
+          "type": "string",
+          "description": "Content maturity rating from the publisher questionnaire.",
+          "enum": ["Everyone (E)", "Everyone 10+ (E10+)", "Teen (T)", "Mature 17+ (M)"],
+          "maxLength": 32
+        },
+        "dataPrivacyPolicy": {
+          "type": "string",
+          "description": "Data collection disclosure from the publisher questionnaire.",
+          "enum": ["Zero Data Collected", "Anonymous Gameplay Telemetry Only", "Authenticated Account Sync"],
+          "maxLength": 64
+        },
+        "accessibilityFeatures": {
+          "type": "string",
+          "description": "Accessibility declaration from the publisher questionnaire.",
+          "enum": ["Keyboard + Mouse + High-Contrast", "Touch + Screen Reader Friendly", "Full Controller + Audio Cues"],
+          "maxLength": 64
+        },
         "aiVisualSummary": {
           "type": "string",
           "description": "Gemini 4 Argon visual analysis or code diagnostic summary attached to the release.",
@@ -100,6 +128,11 @@
         "isPublic",
         "playsCount",
         "likesCount",
+        "priceCents",
+        "monetizationModel",
+        "ageRating",
+        "dataPrivacyPolicy",
+        "accessibilityFeatures",
         "aiVisualSummary",
         "createdAt",
         "updatedAt"
@@ -154,6 +187,202 @@
         "comment",
         "createdAt"
       ]
+    },
+    "PublisherQuestionnaire": {
+      "title": "PublisherQuestionnaire",
+      "description": "Completed publisher vetting, age rating, privacy, and payout compliance questionnaire submitted when adding an app.",
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "description": "Associated PublishedApp document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the publisher.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "studioName": {
+          "type": "string",
+          "description": "Publisher or indie studio display name.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "ageRating": {
+          "type": "string",
+          "enum": ["Everyone (E)", "Everyone 10+ (E10+)", "Teen (T)", "Mature 17+ (M)"],
+          "maxLength": 32
+        },
+        "contentAdvisory": {
+          "type": "string",
+          "enum": ["None", "Mild Cartoon / Tactical", "Moderate"],
+          "maxLength": 40
+        },
+        "dataPrivacyPolicy": {
+          "type": "string",
+          "enum": ["Zero Data Collected", "Anonymous Gameplay Telemetry Only", "Authenticated Account Sync"],
+          "maxLength": 64
+        },
+        "accessibilityFeatures": {
+          "type": "string",
+          "enum": ["Keyboard + Mouse + High-Contrast", "Touch + Screen Reader Friendly", "Full Controller + Audio Cues"],
+          "maxLength": 64
+        },
+        "monetizationModel": {
+          "type": "string",
+          "enum": ["Free to Play", "One-Time Purchase", "Creator Supporter Pass"],
+          "maxLength": 40
+        },
+        "payoutMethod": {
+          "type": "string",
+          "enum": ["Stripe Connect Express (85% Creator / 15% Platform)", "Instant Card Payout", "Open-Source Community Grant"],
+          "maxLength": 64
+        },
+        "supportContact": {
+          "type": "string",
+          "description": "Public support URL or handle for players.",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "testedOfflineAndSandbox": {
+          "type": "boolean",
+          "description": "Attestation that the app runs cleanly inside the browser sandbox."
+        },
+        "acceptedPublisherTerms": {
+          "type": "boolean",
+          "description": "Attestation that publisher terms and content guidelines are accepted."
+        },
+        "complianceCertificateId": {
+          "type": "string",
+          "description": "Backend-issued questionnaire verification ID.",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "appId",
+        "authorId",
+        "studioName",
+        "ageRating",
+        "contentAdvisory",
+        "dataPrivacyPolicy",
+        "accessibilityFeatures",
+        "monetizationModel",
+        "payoutMethod",
+        "supportContact",
+        "testedOfflineAndSandbox",
+        "acceptedPublisherTerms",
+        "complianceCertificateId",
+        "createdAt"
+      ]
+    },
+    "PaymentTransaction": {
+      "title": "PaymentTransaction",
+      "description": "Completed payment or creator support transaction processed through the backend payment gateway.",
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "appTitle": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "buyerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "buyerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "recipientAuthorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "amountCents": {
+          "type": "integer",
+          "description": "Total amount charged in USD cents (100 to 99999)."
+        },
+        "creatorNetCents": {
+          "type": "integer",
+          "description": "85% creator payout share in USD cents."
+        },
+        "platformFeeCents": {
+          "type": "integer",
+          "description": "15% platform fee in USD cents."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["USD"],
+          "maxLength": 8
+        },
+        "paymentType": {
+          "type": "string",
+          "enum": ["App License Purchase", "Creator Supporter Pass"],
+          "maxLength": 32
+        },
+        "cardBrand": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "cardLast4": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4,
+          "pattern": "^[0-9]{4}$"
+        },
+        "receiptNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "enum": ["succeeded"],
+          "maxLength": 16
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "appId",
+        "appTitle",
+        "buyerId",
+        "buyerName",
+        "recipientAuthorId",
+        "amountCents",
+        "creatorNetCents",
+        "platformFeeCents",
+        "currency",
+        "paymentType",
+        "cardBrand",
+        "cardLast4",
+        "receiptNumber",
+        "status",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -164,6 +393,14 @@
     "/apps/{appId}/reviews/{reviewId}": {
       "schema": { "$ref": "#/entities/AppReview" },
       "description": "Subcollection of user reviews and ratings for a specific app."
+    },
+    "/publisherQuestionnaires/{questionnaireId}": {
+      "schema": { "$ref": "#/entities/PublisherQuestionnaire" },
+      "description": "Publisher onboarding and compliance questionnaires linked to published apps."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/PaymentTransaction" },
+      "description": "Completed payment transactions for app purchases and creator supporter passes."
     }
   }
 }

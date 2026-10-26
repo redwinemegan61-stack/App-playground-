@@ -40,12 +40,16 @@ service cloud.firestore {
       return data.keys().hasAll([
         'title', 'tagline', 'description', 'category', 'playType',
         'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
-        'playsCount', 'likesCount', 'aiVisualSummary', 'createdAt', 'updatedAt'
+        'playsCount', 'likesCount', 'priceCents', 'monetizationModel',
+        'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures',
+        'aiVisualSummary', 'createdAt', 'updatedAt'
       ]) &&
       data.keys().hasOnly([
         'title', 'tagline', 'description', 'category', 'playType',
         'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
-        'playsCount', 'likesCount', 'aiVisualSummary', 'createdAt', 'updatedAt'
+        'playsCount', 'likesCount', 'priceCents', 'monetizationModel',
+        'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures',
+        'aiVisualSummary', 'createdAt', 'updatedAt'
       ]) &&
       data.title is string && data.title.size() >= 2 && data.title.size() <= 80 &&
       data.tagline is string && data.tagline.size() >= 4 && data.tagline.size() <= 140 &&
@@ -62,6 +66,15 @@ service cloud.firestore {
       data.isPublic is bool &&
       data.playsCount is int && data.playsCount >= 0 &&
       data.likesCount is int && data.likesCount >= 0 &&
+      data.priceCents is int && data.priceCents >= 0 && data.priceCents <= 99999 &&
+      data.monetizationModel is string && data.monetizationModel.size() <= 40 &&
+      data.monetizationModel in ['Free to Play', 'One-Time Purchase', 'Creator Supporter Pass'] &&
+      data.ageRating is string && data.ageRating.size() <= 32 &&
+      data.ageRating in ['Everyone (E)', 'Everyone 10+ (E10+)', 'Teen (T)', 'Mature 17+ (M)'] &&
+      data.dataPrivacyPolicy is string && data.dataPrivacyPolicy.size() <= 64 &&
+      data.dataPrivacyPolicy in ['Zero Data Collected', 'Anonymous Gameplay Telemetry Only', 'Authenticated Account Sync'] &&
+      data.accessibilityFeatures is string && data.accessibilityFeatures.size() <= 64 &&
+      data.accessibilityFeatures in ['Keyboard + Mouse + High-Contrast', 'Touch + Screen Reader Friendly', 'Full Controller + Audio Cues'] &&
       data.aiVisualSummary is string && data.aiVisualSummary.size() <= 1000 &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
@@ -79,9 +92,81 @@ service cloud.firestore {
       data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
       data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
       data.authorId.matches('^[a-zA-Z0-9_\\-]+$') &&
-      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
       data.rating is int && data.rating >= 1 && data.rating <= 5 &&
       data.comment is string && data.comment.size() >= 2 && data.comment.size() <= 600 &&
+      data.createdAt is timestamp;
+    }
+
+    // Validation Blueprint: PublisherQuestionnaire
+    function isValidPublisherQuestionnaire(data) {
+      return data.keys().hasAll([
+        'appId', 'authorId', 'studioName', 'ageRating', 'contentAdvisory',
+        'dataPrivacyPolicy', 'accessibilityFeatures', 'monetizationModel',
+        'payoutMethod', 'supportContact', 'testedOfflineAndSandbox',
+        'acceptedPublisherTerms', 'complianceCertificateId', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'appId', 'authorId', 'studioName', 'ageRating', 'contentAdvisory',
+        'dataPrivacyPolicy', 'accessibilityFeatures', 'monetizationModel',
+        'payoutMethod', 'supportContact', 'testedOfflineAndSandbox',
+        'acceptedPublisherTerms', 'complianceCertificateId', 'createdAt'
+      ]) &&
+      data.appId is string && data.appId.size() >= 1 && data.appId.size() <= 128 &&
+      data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+      data.authorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.studioName is string && data.studioName.size() >= 2 && data.studioName.size() <= 80 &&
+      data.ageRating is string && data.ageRating.size() <= 32 &&
+      data.ageRating in ['Everyone (E)', 'Everyone 10+ (E10+)', 'Teen (T)', 'Mature 17+ (M)'] &&
+      data.contentAdvisory is string && data.contentAdvisory.size() <= 40 &&
+      data.contentAdvisory in ['None', 'Mild Cartoon / Tactical', 'Moderate'] &&
+      data.dataPrivacyPolicy is string && data.dataPrivacyPolicy.size() <= 64 &&
+      data.dataPrivacyPolicy in ['Zero Data Collected', 'Anonymous Gameplay Telemetry Only', 'Authenticated Account Sync'] &&
+      data.accessibilityFeatures is string && data.accessibilityFeatures.size() <= 64 &&
+      data.accessibilityFeatures in ['Keyboard + Mouse + High-Contrast', 'Touch + Screen Reader Friendly', 'Full Controller + Audio Cues'] &&
+      data.monetizationModel is string && data.monetizationModel.size() <= 40 &&
+      data.monetizationModel in ['Free to Play', 'One-Time Purchase', 'Creator Supporter Pass'] &&
+      data.payoutMethod is string && data.payoutMethod.size() <= 64 &&
+      data.payoutMethod in ['Stripe Connect Express (85% Creator / 15% Platform)', 'Instant Card Payout', 'Open-Source Community Grant'] &&
+      data.supportContact is string && data.supportContact.size() >= 3 && data.supportContact.size() <= 120 &&
+      data.testedOfflineAndSandbox is bool && data.testedOfflineAndSandbox == true &&
+      data.acceptedPublisherTerms is bool && data.acceptedPublisherTerms == true &&
+      data.complianceCertificateId is string && data.complianceCertificateId.size() >= 4 && data.complianceCertificateId.size() <= 64 &&
+      data.createdAt is timestamp;
+    }
+
+    // Validation Blueprint: PaymentTransaction
+    function isValidPaymentTransaction(data) {
+      return data.keys().hasAll([
+        'appId', 'appTitle', 'buyerId', 'buyerName', 'recipientAuthorId',
+        'amountCents', 'creatorNetCents', 'platformFeeCents', 'currency',
+        'paymentType', 'cardBrand', 'cardLast4', 'receiptNumber', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'appId', 'appTitle', 'buyerId', 'buyerName', 'recipientAuthorId',
+        'amountCents', 'creatorNetCents', 'platformFeeCents', 'currency',
+        'paymentType', 'cardBrand', 'cardLast4', 'receiptNumber', 'status', 'createdAt'
+      ]) &&
+      data.appId is string && data.appId.size() >= 1 && data.appId.size() <= 128 &&
+      data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.appTitle is string && data.appTitle.size() >= 2 && data.appTitle.size() <= 80 &&
+      data.buyerId is string && data.buyerId.size() >= 1 && data.buyerId.size() <= 128 &&
+      data.buyerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.buyerName is string && data.buyerName.size() >= 1 && data.buyerName.size() <= 80 &&
+      data.recipientAuthorId is string && data.recipientAuthorId.size() >= 1 && data.recipientAuthorId.size() <= 128 &&
+      data.recipientAuthorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.amountCents is int && data.amountCents >= 100 && data.amountCents <= 99999 &&
+      data.creatorNetCents is int && data.creatorNetCents >= 0 &&
+      data.platformFeeCents is int && data.platformFeeCents >= 0 &&
+      data.creatorNetCents + data.platformFeeCents == data.amountCents &&
+      data.currency is string && data.currency.size() <= 8 && data.currency == 'USD' &&
+      data.paymentType is string && data.paymentType.size() <= 32 &&
+      data.paymentType in ['App License Purchase', 'Creator Supporter Pass'] &&
+      data.cardBrand is string && data.cardBrand.size() >= 2 && data.cardBrand.size() <= 24 &&
+      data.cardLast4 is string && data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$') &&
+      data.receiptNumber is string && data.receiptNumber.size() >= 6 && data.receiptNumber.size() <= 64 &&
+      data.status is string && data.status.size() <= 16 && data.status == 'succeeded' &&
       data.createdAt is timestamp;
     }
 
@@ -123,11 +208,12 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time && (
           isAdmin() ||
-          // Action 1: Publisher edits metadata
+          // Action 1: Publisher edits metadata or pricing
           (existing().authorId == request.auth.uid &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'tagline', 'description', 'category', 'playType',
-              'externalUrl', 'version', 'isPublic', 'aiVisualSummary', 'updatedAt'
+              'externalUrl', 'version', 'isPublic', 'priceCents', 'monetizationModel',
+              'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures', 'aiVisualSummary', 'updatedAt'
             ])
           ) ||
           // Action 2: Community increments play counter by 1
@@ -191,6 +277,48 @@ service cloud.firestore {
             isAdmin()
           );
       }
+    }
+
+    // Collection: Publisher Onboarding & Compliance Questionnaires
+    match /publisherQuestionnaires/{questionnaireId} {
+      allow get: if isVerifiedUser() && isValidId(questionnaireId) && (
+        existing().authorId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow list: if isVerifiedUser() && existing().authorId == request.auth.uid;
+
+      allow create: if isVerifiedUser() &&
+        isValidId(questionnaireId) &&
+        isValidPublisherQuestionnaire(incoming()) &&
+        incoming().authorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/apps/$(incoming().appId)) &&
+        get(/databases/$(database)/documents/apps/$(incoming().appId)).data.authorId == request.auth.uid;
+
+      allow update, delete: if false;
+    }
+
+    // Collection: Payment & Creator Support Transactions (Immutable Ledger)
+    match /payments/{paymentId} {
+      allow get: if isVerifiedUser() && isValidId(paymentId) && (
+        existing().buyerId == request.auth.uid ||
+        existing().recipientAuthorId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow list: if isVerifiedUser() && (
+        existing().buyerId == request.auth.uid ||
+        existing().recipientAuthorId == request.auth.uid
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(paymentId) &&
+        isValidPaymentTransaction(incoming()) &&
+        incoming().buyerId == request.auth.uid &&
+        incoming().createdAt == request.time;
+
+      allow update, delete: if false;
     }
   }
 }

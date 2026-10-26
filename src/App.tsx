@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   collection,
   query,
@@ -35,6 +35,12 @@ import {
   Gamepad2,
   Layers,
   AlertCircle,
+  CreditCard,
+  ShieldCheck,
+  Receipt,
+  X,
+  CheckCircle2,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   db,
@@ -49,14 +55,24 @@ import {
   PlaygroundAppItem,
   AppCategory,
   PlayableEngineType,
+  MonetizationModel,
+  AgeRating,
+  ContentAdvisory,
+  DataPrivacyPolicy,
+  AccessibilityFeatureSet,
+  PayoutMethod,
   AppReviewItem,
+  PaymentRecordItem,
+  PublisherQuestionnaireItem,
   GeminiImageAnalysisResult,
   createSampleDiagnosticImage,
+  formatPriceCents,
+  getSupporterPerksForApp,
 } from './data/defaultApps';
 import { ArtworkCover } from './components/ArtworkCover';
 import { PlayableStage } from './components/PlayableExperiences';
 
-type ActiveSection = 'discover' | 'stage' | 'vision' | 'publish';
+type ActiveSection = 'discover' | 'stage' | 'vision' | 'publish' | 'payments';
 
 const CATEGORIES: Array<'All' | AppCategory | 'My Published'> = [
   'All',
@@ -84,6 +100,28 @@ function formatFirestoreDate(val: unknown): string {
   return 'Just now';
 }
 
+interface BackendLedgerSummary {
+  gatewayStatus: string;
+  totalTransactions: number;
+  totalVolumeCents: number;
+  totalCreatorPayoutCents: number;
+  totalPlatformFeeCents: number;
+  recentReceipts: Array<{
+    intentId: string;
+    appId: string;
+    appTitle: string;
+    buyerName: string;
+    amountCents: number;
+    creatorNetCents: number;
+    platformFeeCents: number;
+    paymentType: string;
+    cardBrand?: string;
+    cardLast4?: string;
+    receiptNumber?: string;
+    createdAtIso: string;
+  }>;
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
@@ -100,11 +138,18 @@ export default function App() {
   const [reviewComment, setReviewComment] = useState<string>('');
   const [submittingReview, setSubmittingReview] = useState<boolean>(false);
 
+  // Firestore User Payments & Questionnaires
+  const [userPayments, setUserPayments] = useState<PaymentRecordItem[]>([]);
+  const [creatorSales, setCreatorSales] = useState<PaymentRecordItem[]>([]);
+  const [myQuestionnaires, setMyQuestionnaires] = useState<PublisherQuestionnaireItem[]>([]);
+  const [unlockedAppIds, setUnlockedAppIds] = useState<string[]>([]);
+  const [backendLedger, setBackendLedger] = useState<BackendLedgerSummary | null>(null);
+
   // Catalog Filters
   const [selectedCategory, setSelectedCategory] = useState<'All' | AppCategory | 'My Published'>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Publish Form State (Synced with firebase-blueprint.json constraints)
+  // Publish Form + Publisher Questionnaire State
   const [pubTitle, setPubTitle] = useState<string>('');
   const [pubTagline, setPubTagline] = useState<string>('');
   const [pubDescription, setPubDescription] = useState<string>('');
@@ -113,8 +158,50 @@ export default function App() {
   const [pubExternalUrl, setPubExternalUrl] = useState<string>('');
   const [pubVersion, setPubVersion] = useState<string>('1.0.0');
   const [pubAiSummary, setPubAiSummary] = useState<string>('');
+
+  // Publisher Questionnaire Fields
+  const [qStudioName, setQStudioName] = useState<string>('');
+  const [qAgeRating, setQAgeRating] = useState<AgeRating>('Everyone (E)');
+  const [qContentAdvisory, setQContentAdvisory] = useState<ContentAdvisory>('None');
+  const [qDataPrivacy, setQDataPrivacy] = useState<DataPrivacyPolicy>('Zero Data Collected');
+  const [qAccessibility, setQAccessibility] = useState<AccessibilityFeatureSet>('Keyboard + Mouse + High-Contrast');
+  const [qMonetization, setQMonetization] = useState<MonetizationModel>('Free to Play');
+  const [qPriceDollars, setQPriceDollars] = useState<string>('0.00');
+  const [qPayoutMethod, setQPayoutMethod] = useState<PayoutMethod>(
+    'Stripe Connect Express (85% Creator / 15% Platform)'
+  );
+  const [qSupportContact, setQSupportContact] = useState<string>('support@playground-creator.dev');
+  const [qTestedSandbox, setQTestedSandbox] = useState<boolean>(true);
+  const [qAcceptedTerms, setQAcceptedTerms] = useState<boolean>(true);
+  const [verifiedCertId, setVerifiedCertId] = useState<string | null>(null);
+  const [verifyingQuestionnaire, setVerifyingQuestionnaire] = useState<boolean>(false);
+
   const [pubStatusMessage, setPubStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
+
+  // Payment Checkout Modal State
+  const [checkoutApp, setCheckoutApp] = useState<PlaygroundAppItem | null>(null);
+  const [checkoutAmountCents, setCheckoutAmountCents] = useState<number>(499);
+  const [checkoutType, setCheckoutType] = useState<'App License Purchase' | 'Creator Supporter Pass'>(
+    'App License Purchase'
+  );
+  const [cardholderName, setCardholderName] = useState<string>('Alex Rivera');
+  const [cardNumber, setCardNumber] = useState<string>('4242 4242 4242 4242');
+  const [cardExpiry, setCardExpiry] = useState<string>('08/29');
+  const [cardCvc, setCardCvc] = useState<string>('842');
+  const [processingPayment, setProcessingPayment] = useState<boolean>(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [settledReceipt, setSettledReceipt] = useState<{
+    receiptNumber: string;
+    appTitle: string;
+    amountCents: number;
+    creatorNetCents: number;
+    platformFeeCents: number;
+    cardBrand: string;
+    cardLast4: string;
+    paymentType: string;
+    createdAtIso: string;
+  } | null>(null);
 
   // Gemini 4 Argon Image Analysis State
   const [uploadedImageDataUrl, setUploadedImageDataUrl] = useState<string>('');
@@ -129,10 +216,34 @@ export default function App() {
   const [copiedGeneratedPatch, setCopiedGeneratedPatch] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Fetch Backend Payment Gateway Ledger
+  const fetchBackendLedger = useCallback(async () => {
+    try {
+      const res = await fetch('/api/payments/ledger');
+      if (res.ok) {
+        const data: BackendLedgerSummary = await res.json();
+        setBackendLedger(data);
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBackendLedger();
+  }, [fetchBackendLedger]);
+
   // 1. Track Firebase Auth state
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      if (currentUser?.displayName) {
+        setQStudioName((prev) => prev || `${currentUser.displayName} Studio`);
+        setCardholderName(currentUser.displayName);
+      }
+      if (currentUser?.email) {
+        setQSupportContact(currentUser.email);
+      }
       setAuthReady(true);
     });
     return () => unsub();
@@ -162,6 +273,12 @@ export default function App() {
             isPublic: Boolean(data.isPublic),
             playsCount: Number(data.playsCount || 0),
             likesCount: Number(data.likesCount || 0),
+            priceCents: Number(data.priceCents || 0),
+            monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
+            ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
+            dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
+            accessibilityFeatures:
+              (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
             aiVisualSummary: String(data.aiVisualSummary || ''),
             createdAtLabel: formatFirestoreDate(data.createdAt),
             isBuiltIn: false,
@@ -178,11 +295,130 @@ export default function App() {
     return () => unsub();
   }, [authReady]);
 
+  // 3. Subscribe to signed-in user's payments (as buyer & creator) and publisher questionnaires
+  useEffect(() => {
+    if (!authReady || !user) {
+      setUserPayments([]);
+      setCreatorSales([]);
+      setMyQuestionnaires([]);
+      return;
+    }
+
+    const buyerQuery = query(collection(db, 'payments'), where('buyerId', '==', user.uid));
+    const unsubBuyer = onSnapshot(
+      buyerQuery,
+      (snapshot) => {
+        const items: PaymentRecordItem[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            appId: String(data.appId || ''),
+            appTitle: String(data.appTitle || ''),
+            buyerId: String(data.buyerId || ''),
+            buyerName: String(data.buyerName || ''),
+            recipientAuthorId: String(data.recipientAuthorId || ''),
+            amountCents: Number(data.amountCents || 0),
+            creatorNetCents: Number(data.creatorNetCents || 0),
+            platformFeeCents: Number(data.platformFeeCents || 0),
+            currency: String(data.currency || 'USD'),
+            paymentType:
+              data.paymentType === 'Creator Supporter Pass'
+                ? 'Creator Supporter Pass'
+                : 'App License Purchase',
+            cardBrand: String(data.cardBrand || 'Visa'),
+            cardLast4: String(data.cardLast4 || '4242'),
+            receiptNumber: String(data.receiptNumber || ''),
+            status: String(data.status || 'succeeded'),
+            createdAtLabel: formatFirestoreDate(data.createdAt),
+          };
+        });
+        setUserPayments(items);
+        setUnlockedAppIds((prev) => Array.from(new Set([...prev, ...items.map((i) => i.appId)])));
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'payments');
+      }
+    );
+
+    const sellerQuery = query(collection(db, 'payments'), where('recipientAuthorId', '==', user.uid));
+    const unsubSeller = onSnapshot(
+      sellerQuery,
+      (snapshot) => {
+        const items: PaymentRecordItem[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            appId: String(data.appId || ''),
+            appTitle: String(data.appTitle || ''),
+            buyerId: String(data.buyerId || ''),
+            buyerName: String(data.buyerName || ''),
+            recipientAuthorId: String(data.recipientAuthorId || ''),
+            amountCents: Number(data.amountCents || 0),
+            creatorNetCents: Number(data.creatorNetCents || 0),
+            platformFeeCents: Number(data.platformFeeCents || 0),
+            currency: String(data.currency || 'USD'),
+            paymentType:
+              data.paymentType === 'Creator Supporter Pass'
+                ? 'Creator Supporter Pass'
+                : 'App License Purchase',
+            cardBrand: String(data.cardBrand || 'Visa'),
+            cardLast4: String(data.cardLast4 || '4242'),
+            receiptNumber: String(data.receiptNumber || ''),
+            status: String(data.status || 'succeeded'),
+            createdAtLabel: formatFirestoreDate(data.createdAt),
+          };
+        });
+        setCreatorSales(items);
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'payments');
+      }
+    );
+
+    const questQuery = query(collection(db, 'publisherQuestionnaires'), where('authorId', '==', user.uid));
+    const unsubQuest = onSnapshot(
+      questQuery,
+      (snapshot) => {
+        const items: PublisherQuestionnaireItem[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            appId: String(data.appId || ''),
+            authorId: String(data.authorId || ''),
+            studioName: String(data.studioName || ''),
+            ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
+            contentAdvisory: (data.contentAdvisory as ContentAdvisory) || 'None',
+            dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
+            accessibilityFeatures:
+              (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
+            monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
+            payoutMethod:
+              (data.payoutMethod as PayoutMethod) ||
+              'Stripe Connect Express (85% Creator / 15% Platform)',
+            supportContact: String(data.supportContact || ''),
+            complianceCertificateId: String(data.complianceCertificateId || ''),
+            createdAtLabel: formatFirestoreDate(data.createdAt),
+          };
+        });
+        setMyQuestionnaires(items);
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'publisherQuestionnaires');
+      }
+    );
+
+    return () => {
+      unsubBuyer();
+      unsubSeller();
+      unsubQuest();
+    };
+  }, [authReady, user]);
+
   // Combine Built-In Flagship Apps + Community Published Apps
   const allApps: PlaygroundAppItem[] = [...communityApps, ...BUILT_IN_APPS];
   const selectedApp = allApps.find((a) => a.id === selectedAppId) || allApps[0];
 
-  // 3. Subscribe to reviews for currently selected community app
+  // 4. Subscribe to reviews for currently selected community app
   useEffect(() => {
     if (!authReady || !selectedApp || selectedApp.isBuiltIn) {
       setReviews([]);
@@ -247,6 +483,118 @@ export default function App() {
     return matchesCategory && matchesQuery;
   });
 
+  // Open Checkout Modal for purchasing an app or supporting a creator
+  const handleOpenCheckout = (appItem: PlaygroundAppItem, forceSupporterPass = false) => {
+    setCheckoutApp(appItem);
+    setPaymentError(null);
+    setSettledReceipt(null);
+
+    if (appItem.priceCents > 0 && !forceSupporterPass) {
+      setCheckoutAmountCents(appItem.priceCents);
+      setCheckoutType('App License Purchase');
+    } else {
+      setCheckoutAmountCents(500); // Default $5.00 Creator Supporter Pass
+      setCheckoutType('Creator Supporter Pass');
+    }
+  };
+
+  // Execute Backend Payment Flow (/api/payments/create-intent -> /api/payments/execute -> Firestore /payments)
+  const handleRunPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkoutApp) return;
+
+    setProcessingPayment(true);
+    setPaymentError(null);
+
+    try {
+      // Step 1: Create Backend Payment Intent
+      const intentRes = await fetch('/api/payments/create-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: checkoutApp.id,
+          appTitle: checkoutApp.title,
+          recipientAuthorId: checkoutApp.authorId,
+          buyerId: user?.uid || 'guest-player',
+          buyerName: user?.displayName || cardholderName.trim() || 'Player',
+          amountCents: checkoutAmountCents,
+          paymentType: checkoutType,
+        }),
+      });
+
+      const intentData = await intentRes.json();
+      if (!intentRes.ok) {
+        throw new Error(intentData.error || 'Could not initialize payment intent.');
+      }
+
+      // Step 2: Execute & Settle Payment on Backend
+      const execRes = await fetch('/api/payments/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intentId: intentData.intent.intentId,
+          cardNumber,
+          cardExpiry,
+          cardCvc,
+          cardholderName,
+        }),
+      });
+
+      const execData = await execRes.json();
+      if (!execRes.ok) {
+        throw new Error(execData.error || 'Card authorization failed.');
+      }
+
+      const settled = execData.transaction;
+
+      // Step 3: If user is authenticated, also persist the verified transaction to Firestore `/payments/{paymentId}`
+      if (user) {
+        const paymentDocId = sanitizeDocId('pay');
+        const paymentPath = `payments/${paymentDocId}`;
+        try {
+          await setDoc(doc(db, 'payments', paymentDocId), {
+            appId: checkoutApp.id,
+            appTitle: checkoutApp.title.slice(0, 80),
+            buyerId: user.uid,
+            buyerName: (user.displayName || cardholderName.trim() || 'Player').slice(0, 80),
+            recipientAuthorId: checkoutApp.authorId,
+            amountCents: Number(settled.amountCents),
+            creatorNetCents: Number(settled.creatorNetCents),
+            platformFeeCents: Number(settled.platformFeeCents),
+            currency: 'USD',
+            paymentType: checkoutType,
+            cardBrand: String(settled.cardBrand || 'Visa'),
+            cardLast4: String(settled.cardLast4 || '4242'),
+            receiptNumber: String(settled.receiptNumber),
+            status: 'succeeded',
+            createdAt: serverTimestamp(),
+          });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.CREATE, paymentPath);
+        }
+      }
+
+      setUnlockedAppIds((prev) => Array.from(new Set([...prev, checkoutApp.id])));
+      setSettledReceipt({
+        receiptNumber: settled.receiptNumber,
+        appTitle: checkoutApp.title,
+        amountCents: settled.amountCents,
+        creatorNetCents: settled.creatorNetCents,
+        platformFeeCents: settled.platformFeeCents,
+        cardBrand: settled.cardBrand,
+        cardLast4: settled.cardLast4,
+        paymentType: checkoutType,
+        createdAtIso: settled.createdAtIso,
+      });
+
+      await fetchBackendLedger();
+    } catch (err: unknown) {
+      setPaymentError(err instanceof Error ? err.message : 'Payment processing failed.');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
   // Launch an app into the interactive stage and increment playsCount if Firestore-backed
   const handleLaunchApp = async (appItem: PlaygroundAppItem) => {
     setSelectedAppId(appItem.id);
@@ -299,7 +647,56 @@ export default function App() {
     }
   };
 
-  // Submit a new App or Game to Firestore
+  // Verify Publisher Questionnaire via Backend Endpoint (/api/publisher/validate-questionnaire)
+  const handleVerifyQuestionnaireOnly = async () => {
+    setVerifyingQuestionnaire(true);
+    setPubStatusMessage(null);
+    try {
+      const parsedDollars = parseFloat(qPriceDollars || '0');
+      const computedPriceCents =
+        qMonetization === 'Free to Play'
+          ? 0
+          : Math.max(0, Math.min(99999, Math.round((isNaN(parsedDollars) ? 0 : parsedDollars) * 100)));
+
+      const res = await fetch('/api/publisher/validate-questionnaire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studioName: qStudioName.trim() || user?.displayName || 'Indie Studio',
+          ageRating: qAgeRating,
+          contentAdvisory: qContentAdvisory,
+          dataPrivacyPolicy: qDataPrivacy,
+          accessibilityFeatures: qAccessibility,
+          monetizationModel: qMonetization,
+          priceCents: computedPriceCents,
+          payoutMethod: qPayoutMethod,
+          supportContact: qSupportContact.trim(),
+          testedOfflineAndSandbox: qTestedSandbox,
+          acceptedPublisherTerms: qAcceptedTerms,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Questionnaire validation failed.');
+      }
+
+      setVerifiedCertId(data.complianceCertificateId);
+      setPubStatusMessage({
+        type: 'success',
+        text: `Publisher Questionnaire verified by backend! Compliance Certificate: ${data.complianceCertificateId}`,
+      });
+    } catch (err: unknown) {
+      setPubStatusMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to validate questionnaire.',
+      });
+    } finally {
+      setVerifyingQuestionnaire(false);
+    }
+  };
+
+  // Submit a new App or Game + Publisher Questionnaire to Backend & Firestore
   const handlePublishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPubStatusMessage(null);
@@ -307,7 +704,7 @@ export default function App() {
     if (!user) {
       setPubStatusMessage({
         type: 'error',
-        text: 'Please sign in with Google first to publish your app or game to the catalog.',
+        text: 'Please sign in with Google first to complete the Publisher Questionnaire and publish your app.',
       });
       return;
     }
@@ -317,9 +714,11 @@ export default function App() {
     const cleanDesc = pubDescription.trim().slice(0, 1500);
     const cleanVersion = pubVersion.trim().slice(0, 24) || '1.0.0';
     const cleanUrl = pubExternalUrl.trim().slice(0, 500);
+    const cleanStudio = (qStudioName.trim() || user.displayName || 'Creator Studio').slice(0, 80);
+    const cleanSupport = qSupportContact.trim().slice(0, 120);
     const cleanAiSummary =
       pubAiSummary.trim().slice(0, 1000) ||
-      'Published via App and Game Playground Creator Studio.';
+      `Verified via Publisher Questionnaire (${qAgeRating} · ${qDataPrivacy} · ${qAccessibility}).`;
 
     if (cleanTitle.length < 2) {
       setPubStatusMessage({ type: 'error', text: 'Title must be between 2 and 80 characters.' });
@@ -334,28 +733,95 @@ export default function App() {
       return;
     }
 
+    const parsedDollars = parseFloat(qPriceDollars || '0');
+    const computedPriceCents =
+      qMonetization === 'Free to Play'
+        ? 0
+        : Math.max(100, Math.min(99999, Math.round((isNaN(parsedDollars) ? 4.99 : parsedDollars) * 100)));
+
     setIsPublishing(true);
-    const newId = sanitizeDocId('app');
-    const docPath = `apps/${newId}`;
 
     try {
-      await setDoc(doc(db, 'apps', newId), {
-        title: cleanTitle,
-        tagline: cleanTagline,
-        description: cleanDesc,
-        category: pubCategory,
-        playType: pubPlayType,
-        externalUrl: cleanUrl,
-        version: cleanVersion,
-        authorId: user.uid,
-        authorName: (user.displayName || user.email?.split('@')[0] || 'Creator').slice(0, 80),
-        isPublic: true,
-        playsCount: 0,
-        likesCount: 0,
-        aiVisualSummary: cleanAiSummary,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      // Step 1: Validate Publisher Questionnaire on Backend Server
+      const verifyRes = await fetch('/api/publisher/validate-questionnaire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studioName: cleanStudio,
+          ageRating: qAgeRating,
+          contentAdvisory: qContentAdvisory,
+          dataPrivacyPolicy: qDataPrivacy,
+          accessibilityFeatures: qAccessibility,
+          monetizationModel: qMonetization,
+          priceCents: computedPriceCents,
+          payoutMethod: qPayoutMethod,
+          supportContact: cleanSupport,
+          testedOfflineAndSandbox: qTestedSandbox,
+          acceptedPublisherTerms: qAcceptedTerms,
+        }),
       });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verifyData.error || 'Publisher Questionnaire validation failed.');
+      }
+
+      const certId: string = verifyData.complianceCertificateId;
+      setVerifiedCertId(certId);
+
+      // Step 2: Write PublishedApp to Firestore `/apps/{newId}`
+      const newAppId = sanitizeDocId('app');
+      const appDocPath = `apps/${newAppId}`;
+      try {
+        await setDoc(doc(db, 'apps', newAppId), {
+          title: cleanTitle,
+          tagline: cleanTagline,
+          description: cleanDesc,
+          category: pubCategory,
+          playType: pubPlayType,
+          externalUrl: cleanUrl,
+          version: cleanVersion,
+          authorId: user.uid,
+          authorName: cleanStudio,
+          isPublic: true,
+          playsCount: 0,
+          likesCount: 0,
+          priceCents: computedPriceCents,
+          monetizationModel: qMonetization,
+          ageRating: qAgeRating,
+          dataPrivacyPolicy: qDataPrivacy,
+          accessibilityFeatures: qAccessibility,
+          aiVisualSummary: cleanAiSummary,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, appDocPath);
+      }
+
+      // Step 3: Write PublisherQuestionnaire to Firestore `/publisherQuestionnaires/{questId}`
+      const questId = sanitizeDocId('quest');
+      const questDocPath = `publisherQuestionnaires/${questId}`;
+      try {
+        await setDoc(doc(db, 'publisherQuestionnaires', questId), {
+          appId: newAppId,
+          authorId: user.uid,
+          studioName: cleanStudio,
+          ageRating: qAgeRating,
+          contentAdvisory: qContentAdvisory,
+          dataPrivacyPolicy: qDataPrivacy,
+          accessibilityFeatures: qAccessibility,
+          monetizationModel: qMonetization,
+          payoutMethod: qPayoutMethod,
+          supportContact: cleanSupport,
+          testedOfflineAndSandbox: qTestedSandbox,
+          acceptedPublisherTerms: qAcceptedTerms,
+          complianceCertificateId: certId,
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, questDocPath);
+      }
 
       setPubTitle('');
       setPubTagline('');
@@ -364,15 +830,18 @@ export default function App() {
       setPubAiSummary('');
       setPubStatusMessage({
         type: 'success',
-        text: `Published "${cleanTitle}"! Launching in the Playground Stage...`,
+        text: `Published "${cleanTitle}" with Compliance Certificate ${certId}! Launching in Stage...`,
       });
-      setSelectedAppId(newId);
+      setSelectedAppId(newAppId);
       setTimeout(() => {
         setActiveSection('stage');
         setPubStatusMessage(null);
       }, 900);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, docPath);
+    } catch (err: unknown) {
+      setPubStatusMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to publish app.',
+      });
     } finally {
       setIsPublishing(false);
     }
@@ -499,7 +968,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#0B0F17] text-[#F8FAFC]">
       {/* =====================================================================
           STRICT 3-ZONE TOP BAR CONTRACT
-          [Brand Wordmark] — [4 Single-Line Nav Links] — [1 Primary Action CTA]
+          [Brand Wordmark] — [5 Single-Line Nav Links] — [1 Primary Action CTA]
          ===================================================================== */}
       <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 lg:px-10 py-4 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/90">
         {/* Zone 1: Single text element wordmark */}
@@ -514,8 +983,8 @@ export default function App() {
           App and Game Playground
         </a>
 
-        {/* Zone 2: 4 concise single-line text navigation links */}
-        <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-300">
+        {/* Zone 2: 5 concise single-line text navigation links */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
           <a
             href="#discover"
             onClick={(e) => {
@@ -526,7 +995,7 @@ export default function App() {
               activeSection === 'discover' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
             }`}
           >
-            Discover Catalog
+            Play Store
           </a>
           <a
             href="#stage"
@@ -550,7 +1019,7 @@ export default function App() {
               activeSection === 'vision' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
             }`}
           >
-            Vision Analyzer
+            Vision Lab
           </a>
           <a
             href="#publish"
@@ -562,7 +1031,20 @@ export default function App() {
               activeSection === 'publish' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
             }`}
           >
-            Creator Studio
+            Publisher Studio
+          </a>
+          <a
+            href="#payments"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('payments');
+              fetchBackendLedger();
+            }}
+            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
+              activeSection === 'payments' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
+            }`}
+          >
+            Payments &amp; Ledger
           </a>
         </nav>
 
@@ -572,7 +1054,7 @@ export default function App() {
             onClick={() => setActiveSection('publish')}
             className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Publish App
+            Publish to Play Store
           </button>
         </div>
       </header>
@@ -584,19 +1066,19 @@ export default function App() {
         {/* Account & Workspace Context Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-800/80">
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 font-mono tabular-nums">
-            <span>PUBLISHED RELEASES: {allApps.length}</span>
+            <span>PLAY STORE RELEASES: {allApps.length}</span>
             <span aria-hidden="true">·</span>
-            <span>TOTAL LAUNCHES: {totalPlays.toLocaleString()}</span>
+            <span>COMMUNITY PUBLISHED: {communityApps.length}</span>
             <span aria-hidden="true">·</span>
-            <span>COMMUNITY APPLAUSE: {totalLikes.toLocaleString()}</span>
+            <span>LAUNCHES: {totalPlays.toLocaleString()}</span>
             <span aria-hidden="true">·</span>
-            <span>VISION MODEL: GEMINI-4-ARGON</span>
+            <span>REVENUE SPLIT: 85% CREATOR / 15% PLATFORM</span>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Mobile Section Switcher */}
             <div className="flex md:hidden items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
-              {(['discover', 'stage', 'vision', 'publish'] as ActiveSection[]).map((sec) => (
+              {(['discover', 'stage', 'vision', 'publish', 'payments'] as ActiveSection[]).map((sec) => (
                 <button
                   key={sec}
                   onClick={() => setActiveSection(sec)}
@@ -604,7 +1086,7 @@ export default function App() {
                     activeSection === sec ? 'bg-indigo-600 text-white' : 'text-slate-400'
                   }`}
                 >
-                  {sec}
+                  {sec === 'discover' ? 'Play Store' : sec}
                 </button>
               ))}
             </div>
@@ -635,29 +1117,31 @@ export default function App() {
         </div>
 
         {/* ===================================================================
-            VIEW 1: DISCOVER STOREFRONT & CATALOG
+            VIEW 1: PLAY STORE FRONTEND & APP MARKETPLACE
            =================================================================== */}
         {activeSection === 'discover' && (
           <div className="space-y-12">
-            {/* Split-Column Storefront Hero */}
+            {/* Split-Column Play Store Hero */}
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch bg-[#111827] border border-slate-800 rounded-2xl p-6 lg:p-10">
               <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 text-xs font-mono text-indigo-400">
-                    <span>INTERACTIVE PUBLISHING PLATFORM</span>
+                    <span>PLAYGROUND PLAY STORE</span>
                     <span aria-hidden="true">·</span>
-                    <span>INSTANT BROWSER RUNTIME</span>
+                    <span>INSTANT BROWSER INSTALL &amp; 85% CREATOR PAYOUTS</span>
                   </div>
                   <h1
                     className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold font-display text-white tracking-tight leading-[1.15]"
                     style={{ textWrap: 'balance' }}
                   >
-                    Publish, play, and inspect indie games and web apps in one studio.
+                    The Play Store for web apps, indie games, and developer tools.
                   </h1>
                   <p className="text-base text-slate-300 leading-relaxed max-w-2xl">
-                    Launch playable 2D strategy games, polyphonic synthesizers, accessible word puzzles, and developer
-                    patch tools directly in your browser—or publish your own builds to the community catalog with
-                    Gemini 4 Argon screenshot analysis.
+                    Every app submitted through the Publisher Studio appears live in this Play Store catalog in real
+                    time. Launch free builds immediately in your browser, or purchase a{' '}
+                    <strong className="text-white font-semibold">Creator Supporter Pass</strong> /{' '}
+                    <strong className="text-white font-semibold">Commercial App License</strong> to unlock Pro weapons,
+                    synth presets, puzzle auto-reveal tools, and send 85% directly to the creator.
                   </p>
                 </div>
 
@@ -667,21 +1151,21 @@ export default function App() {
                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Play className="w-4 h-4" />
-                    Play Featured: Starlight Tactics
+                    Install &amp; Play: Starlight Tactics
                   </button>
                   <button
                     onClick={() => setActiveSection('publish')}
                     className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
-                    Publish Your App
+                    <ClipboardCheck className="w-4 h-4 text-emerald-400" />
+                    Publish Your App to Play Store
                   </button>
                   <button
-                    onClick={() => setActiveSection('vision')}
-                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                    onClick={() => handleOpenCheckout(BUILT_IN_APPS[0], true)}
+                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-200 border border-amber-700/60 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    Analyze Photo with Gemini 4 Argon
+                    <CreditCard className="w-4 h-4 text-amber-400" />
+                    Preview Supporter Pass Perks
                   </button>
                 </div>
               </div>
@@ -695,19 +1179,83 @@ export default function App() {
                 />
                 <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="text-xs text-slate-400 truncate">
-                      Featured Spotlight · v2.4.0 · Playground Core Studio
+                    <div className="text-xs text-slate-400 truncate font-mono tabular-nums">
+                      #1 Top Game · 4.9 ★ · Everyone 10+
                     </div>
                     <div className="text-sm font-semibold text-white truncate">
                       Starlight Tactics: Sector Zero
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleLaunchApp(BUILT_IN_APPS[0])}
-                    className="px-3.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    Launch Now
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleOpenCheckout(BUILT_IN_APPS[0], true)}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-700/60 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      Supporter Pass
+                    </button>
+                    <button
+                      onClick={() => handleLaunchApp(BUILT_IN_APPS[0])}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      Play Free
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Clear Breakdown of What a Supporter Pass / App License Unlocks */}
+            <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-4">
+                <div>
+                  <div className="text-xs font-mono text-amber-400">
+                    SUPPORTER PASS &amp; COMMERCIAL LICENSE VALUE GUIDE
+                  </div>
+                  <h2 className="text-lg font-bold font-display text-white mt-0.5">
+                    What Buyers Actually Receive When Purchasing a Supporter Pass or App License
+                  </h2>
+                </div>
+                <span className="text-xs font-mono text-emerald-400 tabular-nums">
+                  85% DIRECT TO CREATOR · INSTANT IN-APP UNLOCK
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
+                  <div className="font-mono text-amber-300 font-semibold">1. TACTICAL GAMES PASS</div>
+                  <div className="text-white font-semibold">Commander Overdrive + Heavy Ion Cannon</div>
+                  <p className="text-slate-400 leading-relaxed">
+                    Boosts turn Action Points from 3 AP to <strong className="text-slate-200">4 AP per turn</strong> and
+                    unlocks the <strong className="text-slate-200">Heavy Ion Cannon (50 DMG)</strong> button inside the
+                    game HUD.
+                  </p>
+                </div>
+
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
+                  <div className="font-mono text-indigo-300 font-semibold">2. AUDIO SYNTH LICENSE ($4.99)</div>
+                  <div className="text-white font-semibold">Cyber-Arpeggio Preset + JSON Loop Export</div>
+                  <p className="text-slate-400 leading-relaxed">
+                    Unlocks the 1-click <strong className="text-slate-200">Load Pro Preset</strong> harmonic sequencer
+                    pattern and <strong className="text-slate-200">Export Loop JSON</strong> studio file download.
+                  </p>
+                </div>
+
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
+                  <div className="font-mono text-emerald-300 font-semibold">3. WORD PUZZLE PASS</div>
+                  <div className="text-white font-semibold">1-Click Auto-Reveal Word + Gold Tiles</div>
+                  <p className="text-slate-400 leading-relaxed">
+                    Unlocks unlimited <strong className="text-slate-200">Auto-Reveal Target Word</strong> solver
+                    assists and golden supporter tile styling in Botanica Word.
+                  </p>
+                </div>
+
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
+                  <div className="font-mono text-cyan-300 font-semibold">4. VERIFIED RECEIPT &amp; PAYOUT</div>
+                  <div className="text-white font-semibold">Permanent Unlock + 85% Creator Share</div>
+                  <p className="text-slate-400 leading-relaxed">
+                    Issues an itemized <code className="font-mono text-slate-200">RCPT-*</code> receipt stored in
+                    Firestore, permanently unlocks the app on your account, and routes 85% to the publisher.
+                  </p>
                 </div>
               </div>
             </section>
@@ -717,10 +1265,11 @@ export default function App() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-bold font-display text-white">
-                    01. Published Apps &amp; Games Catalog
+                    01. Play Store App &amp; Game Directory
                   </h2>
                   <p className="text-sm text-slate-400 mt-1">
-                    Select any release to launch its interactive runtime or inspect community reviews.
+                    Browse official flagship releases and live community apps published via the Publisher Studio. Click
+                    any app to launch it immediately in the browser or unlock its Supporter Pass perks.
                   </p>
                 </div>
 
@@ -731,7 +1280,7 @@ export default function App() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search apps, games, creators..."
+                    placeholder="Search Play Store apps, games, studios..."
                     className="w-full pl-9 pr-4 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -749,12 +1298,37 @@ export default function App() {
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    {cat === 'All' ? 'All Experiences' : cat}
+                    {cat === 'All'
+                      ? `All Play Store Apps (${allApps.length})`
+                      : cat === 'My Published'
+                        ? `My Published (${communityApps.filter((a) => user && a.authorId === user.uid).length})`
+                        : cat}
                   </button>
                 ))}
               </div>
 
-              {/* 3-Column Catalog Grid */}
+              {/* Live Community Published Banner (shows how Publisher Studio feeds the Play Store) */}
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-mono text-emerald-400">
+                    LIVE FIRESTORE PLAY STORE FEED · {communityApps.length} COMMUNITY RELEASES ACTIVE
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    {communityApps.length > 0
+                      ? 'Community-published apps are live in the Play Store grid below alongside official flagship titles.'
+                      : 'Want to see a new app publish live to this Play Store? Submit an app in the Publisher Studio and it appears here immediately.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveSection('publish')}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add App to Play Store
+                </button>
+              </div>
+
+              {/* 3-Column Play Store Catalog Grid */}
               {loadingApps ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {[1, 2, 3].map((n) => (
@@ -774,7 +1348,7 @@ export default function App() {
                     <h3 className="text-base font-semibold text-white">No matching apps or games found</h3>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
                       {selectedCategory === 'My Published' && !user
-                        ? 'Sign in with Google to view and manage the apps and games you have published.'
+                        ? 'Sign in with Google to view and manage the apps and games you have published to the Play Store.'
                         : 'Try clearing your search filter or publish the first release in this category.'}
                     </p>
                   </div>
@@ -787,86 +1361,120 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredApps.map((appItem) => (
-                    <article
-                      key={appItem.id}
-                      className="group bg-[#111827] border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden flex flex-col justify-between transition-transform duration-150 hover:-translate-y-0.5"
-                    >
-                      <div>
-                        {/* Card Artwork */}
-                        <div
-                          onClick={() => handleLaunchApp(appItem)}
-                          className="cursor-pointer border-b border-slate-800/80"
-                        >
-                          <ArtworkCover
-                            playType={appItem.playType}
-                            category={appItem.category}
-                            title={appItem.title}
-                            className="h-48 w-full"
-                          />
-                        </div>
-
-                        {/* Card Content — Zero-Pill Unboxed Metadata */}
-                        <div className="p-5 space-y-2.5">
-                          <div className="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
-                            <span>{appItem.category}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>v{appItem.version}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>{appItem.playsCount.toLocaleString()} plays</span>
+                  {filteredApps.map((appItem) => {
+                    const isUnlocked = unlockedAppIds.includes(appItem.id) || (user && appItem.authorId === user.uid);
+                    const perkInfo = getSupporterPerksForApp(appItem.playType, appItem.priceCents);
+                    return (
+                      <article
+                        key={appItem.id}
+                        className="group bg-[#111827] border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden flex flex-col justify-between transition-transform duration-150 hover:-translate-y-0.5"
+                      >
+                        <div>
+                          {/* Card Artwork */}
+                          <div
+                            onClick={() => handleLaunchApp(appItem)}
+                            className="cursor-pointer border-b border-slate-800/80"
+                          >
+                            <ArtworkCover
+                              playType={appItem.playType}
+                              category={appItem.category}
+                              title={appItem.title}
+                              className="h-48 w-full"
+                            />
                           </div>
 
-                          <h3 className="text-base font-bold font-display text-white group-hover:text-indigo-300 transition-colors">
+                          {/* Card Content — Zero-Pill Unboxed Metadata */}
+                          <div className="p-5 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2 text-xs text-slate-400 font-mono tabular-nums">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="text-amber-400">4.9 ★</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{appItem.category}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{appItem.ageRating}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{appItem.playsCount.toLocaleString()} installs</span>
+                              </div>
+                              <span className="text-white font-semibold shrink-0">
+                                {isUnlocked
+                                  ? 'PASS ACTIVE'
+                                  : formatPriceCents(appItem.priceCents)}
+                              </span>
+                            </div>
+
+                            <h3 className="text-base font-bold font-display text-white group-hover:text-indigo-300 transition-colors">
+                              <button
+                                onClick={() => handleLaunchApp(appItem)}
+                                className="text-left focus:outline-none cursor-pointer"
+                              >
+                                {appItem.title}
+                              </button>
+                            </h3>
+
+                            <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
+                              {appItem.tagline}
+                            </p>
+
+                            {/* Explicit Supporter Pass / License Unlock Line */}
+                            <div className="pt-1 text-[11px] font-mono text-amber-300/90 truncate">
+                              {isUnlocked ? '✓ Unlocked: ' : 'Pass Perk: '}
+                              {perkInfo.perks[0]}
+                            </div>
+
+                            <div className="text-[11px] text-slate-400 font-mono truncate">
+                              {appItem.isBuiltIn ? 'Official Flagship' : 'Community Published'} · {appItem.dataPrivacyPolicy}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="px-5 pb-5 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-3">
+                          <div className="text-xs text-slate-400 truncate">
+                            {appItem.authorName}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {!appItem.isBuiltIn && (
+                              <button
+                                onClick={() => handleLikeApp(appItem)}
+                                title="Upvote release"
+                                className="px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-300 bg-slate-900 border border-slate-700 rounded-md hover:text-rose-300 hover:border-rose-700 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                <Heart className="w-3.5 h-3.5 text-rose-400" />
+                                {appItem.likesCount}
+                              </button>
+                            )}
+                            {user && !appItem.isBuiltIn && appItem.authorId === user.uid && (
+                              <button
+                                onClick={() => handleDeleteApp(appItem)}
+                                title="Delete your published app"
+                                className="p-1.5 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-700 rounded-md transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleOpenCheckout(appItem)}
+                              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800/70 text-xs font-mono font-medium rounded-md transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                            >
+                              <CreditCard className="w-3 h-3" />
+                              {appItem.priceCents > 0 && !isUnlocked
+                                ? `Buy ${formatPriceCents(appItem.priceCents)}`
+                                : isUnlocked
+                                  ? 'Pass Active'
+                                  : 'Supporter Pass'}
+                            </button>
                             <button
                               onClick={() => handleLaunchApp(appItem)}
-                              className="text-left focus:outline-none cursor-pointer"
+                              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                             >
-                              {appItem.title}
+                              <Play className="w-3 h-3" />
+                              Install &amp; Play
                             </button>
-                          </h3>
-
-                          <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
-                            {appItem.tagline}
-                          </p>
+                          </div>
                         </div>
-                      </div>
-
-                      <div className="px-5 pb-5 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-3">
-                        <div className="text-xs text-slate-400 truncate">
-                          By {appItem.authorName}
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {!appItem.isBuiltIn && (
-                            <button
-                              onClick={() => handleLikeApp(appItem)}
-                              title="Upvote release"
-                              className="px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-300 bg-slate-900 border border-slate-700 rounded-md hover:text-rose-300 hover:border-rose-700 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                            >
-                              <Heart className="w-3.5 h-3.5 text-rose-400" />
-                              {appItem.likesCount}
-                            </button>
-                          )}
-                          {user && !appItem.isBuiltIn && appItem.authorId === user.uid && (
-                            <button
-                              onClick={() => handleDeleteApp(appItem)}
-                              title="Delete your published app"
-                              className="p-1.5 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-700 rounded-md transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleLaunchApp(appItem)}
-                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                          >
-                            <Play className="w-3 h-3" />
-                            Launch
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -881,20 +1489,31 @@ export default function App() {
             {/* Stage Selector Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 bg-[#111827] border border-slate-800 rounded-xl p-4">
               <div className="space-y-1">
-                <div className="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
-                  <span>ACTIVE RUNTIME STAGE</span>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
+                  <span>ACTIVE STAGE</span>
                   <span aria-hidden="true">·</span>
                   <span>{selectedApp.category}</span>
                   <span aria-hidden="true">·</span>
                   <span>v{selectedApp.version}</span>
                   <span aria-hidden="true">·</span>
-                  <span>By {selectedApp.authorName}</span>
+                  <span>{selectedApp.ageRating}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-emerald-400">{formatPriceCents(selectedApp.priceCents)}</span>
                 </div>
                 <h2 className="text-xl font-bold font-display text-white">{selectedApp.title}</h2>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {allApps.slice(0, 6).map((item) => (
+                <button
+                  onClick={() => handleOpenCheckout(selectedApp)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-emerald-200 bg-emerald-950/80 border border-emerald-700/70 rounded-lg hover:bg-emerald-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  {selectedApp.priceCents > 0
+                    ? `Purchase License (${formatPriceCents(selectedApp.priceCents)})`
+                    : 'Buy Supporter Pass'}
+                </button>
+                {allApps.slice(0, 5).map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setSelectedAppId(item.id)}
@@ -913,18 +1532,44 @@ export default function App() {
             {/* Interactive Playable Experience Canvas */}
             <PlayableStage
               app={selectedApp}
+              hasSupporterPass={
+                unlockedAppIds.includes(selectedApp.id) || Boolean(user && selectedApp.authorId === user.uid)
+              }
+              onUnlockClick={() => handleOpenCheckout(selectedApp)}
               onOpenVisionTab={() => setActiveSection('vision')}
             />
 
-            {/* Release Notes, Gemini Visual Verification & Community Reviews */}
+            {/* Release Notes, Publisher Questionnaire Disclosure & Community Reviews */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               <div className="lg:col-span-6 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
                 <h3 className="text-base font-bold font-display text-white">
-                  Release Documentation &amp; Visual Audit
+                  Release Documentation &amp; Publisher Disclosures
                 </h3>
                 <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
                   {selectedApp.description}
                 </p>
+
+                <div className="pt-3 border-t border-slate-800 grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block">Age &amp; Content Rating</span>
+                    <span className="text-white font-medium">{selectedApp.ageRating}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Monetization Model</span>
+                    <span className="text-white font-medium">
+                      {selectedApp.monetizationModel} ({formatPriceCents(selectedApp.priceCents)})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Data Privacy Declaration</span>
+                    <span className="text-white font-medium">{selectedApp.dataPrivacyPolicy}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Accessibility Support</span>
+                    <span className="text-white font-medium">{selectedApp.accessibilityFeatures}</span>
+                  </div>
+                </div>
+
                 {selectedApp.aiVisualSummary && (
                   <div className="pt-3 border-t border-slate-800 space-y-1.5">
                     <div className="text-xs font-mono text-indigo-400">
@@ -951,13 +1596,13 @@ export default function App() {
                   <div className="text-xs text-slate-400 space-y-3">
                     <p>
                       This is a verified built-in flagship experience included with App and Game Playground. Publish a
-                      community app in the Creator Studio to collect live Firestore ratings and reviews!
+                      community app in the Publisher Studio to collect live Firestore ratings, reviews, and payments!
                     </p>
                     <button
                       onClick={() => setActiveSection('publish')}
                       className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >
-                      Publish Your Own Build
+                      Complete Questionnaire &amp; Publish
                     </button>
                   </div>
                 ) : (
@@ -1196,7 +1841,7 @@ export default function App() {
                           className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          Use in Publish Studio
+                          Use in Publisher Studio
                         </button>
                         <button
                           onClick={downloadVisionPatch}
@@ -1273,30 +1918,30 @@ export default function App() {
         )}
 
         {/* ===================================================================
-            VIEW 4: CREATOR STUDIO — PUBLISH NEW APP OR GAME
+            VIEW 4: PUBLISHER STUDIO & QUESTIONNAIRE
            =================================================================== */}
         {activeSection === 'publish' && (
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <div className="text-xs font-mono text-indigo-400">
-                  CREATOR PUBLISHING PIPELINE · FIRESTORE PERSISTENCE
+                  PUBLISHER ONBOARDING QUESTIONNAIRE · BACKEND COMPLIANCE &amp; FIRESTORE
                 </div>
                 <h2 className="text-2xl font-bold font-display text-white mt-1">
-                  03. Publish an App or Game to the Playground
+                  03. Publisher Questionnaire &amp; App Submission Studio
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  Configure your release metadata, select an interactive runtime template or external web URL, or upload
-                  a screenshot to autofill with <code className="text-indigo-300 font-mono">gemini-4-argon</code>.
+                  All creators adding apps or games complete the Publisher Questionnaire below to verify age ratings,
+                  privacy disclosures, accessibility, and 85/15 payment payout routing.
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Main Publishing Form */}
+              {/* Main Publishing + Questionnaire Form */}
               <form
                 onSubmit={handlePublishSubmit}
-                className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-5"
+                className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-6"
               >
                 {pubStatusMessage && (
                   <div
@@ -1310,139 +1955,350 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Part A: Core Release Metadata */}
+                <div className="space-y-4">
+                  <div className="text-xs font-mono text-indigo-400 border-b border-slate-800 pb-2">
+                    SECTION A · APP OR GAME RELEASE DETAILS
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        App or Game Title (2–80 chars) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={pubTitle}
+                        onChange={(e) => setPubTitle(e.target.value)}
+                        placeholder="e.g., Nebula Command: Tactical Grid"
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        Version (e.g., 1.0.0) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={1}
+                        maxLength={24}
+                        value={pubVersion}
+                        onChange={(e) => setPubVersion(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-1.5">
                     <label className="block text-xs font-medium text-slate-300">
-                      App or Game Title (2–80 chars) *
+                      Single-Line Tagline (4–140 chars) *
                     </label>
                     <input
                       type="text"
                       required
-                      minLength={2}
-                      maxLength={80}
-                      value={pubTitle}
-                      onChange={(e) => setPubTitle(e.target.value)}
-                      placeholder="e.g., Nebula Command: Tactical Grid"
+                      minLength={4}
+                      maxLength={140}
+                      value={pubTagline}
+                      onChange={(e) => setPubTagline(e.target.value)}
+                      placeholder="Short hook shown on storefront cards..."
                       className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">Category *</label>
+                      <select
+                        value={pubCategory}
+                        onChange={(e) => setPubCategory(e.target.value as AppCategory)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Game">Game</option>
+                        <option value="Creative App">Creative App</option>
+                        <option value="Developer Tool">Developer Tool</option>
+                        <option value="Utility">Utility</option>
+                        <option value="Simulation">Simulation</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        Interactive Runtime Engine *
+                      </label>
+                      <select
+                        value={pubPlayType}
+                        onChange={(e) => setPubPlayType(e.target.value as PlayableEngineType)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="starlight-tactics">2D Tactical Space Grid Engine</option>
+                        <option value="pulsepad-synth">16-Step Web Audio Synth Sequencer</option>
+                        <option value="botanica-word">Accessible Word &amp; Tile Puzzle Engine</option>
+                        <option value="patchforge-vision">Code Diff &amp; Vision Inspector</option>
+                        <option value="custom-embed">Custom Web App / External Build URL</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {pubPlayType === 'custom-embed' && (
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        External Web App URL (optional, max 500 chars)
+                      </label>
+                      <input
+                        type="url"
+                        maxLength={500}
+                        value={pubExternalUrl}
+                        onChange={(e) => setPubExternalUrl(e.target.value)}
+                        placeholder="https://your-app-url.example.com"
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
+
                   <div className="space-y-1.5">
                     <label className="block text-xs font-medium text-slate-300">
-                      Version (e.g., 1.0.0) *
+                      Full Description, Controls &amp; Release Notes (10–1500 chars) *
                     </label>
-                    <input
-                      type="text"
+                    <textarea
+                      rows={3}
                       required
-                      minLength={1}
-                      maxLength={24}
-                      value={pubVersion}
-                      onChange={(e) => setPubVersion(e.target.value)}
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                      minLength={10}
+                      maxLength={1500}
+                      value={pubDescription}
+                      onChange={(e) => setPubDescription(e.target.value)}
+                      placeholder="Explain how people play or use your app, key controls, and what makes it special..."
+                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-300">
-                    Single-Line Tagline (4–140 chars) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    minLength={4}
-                    maxLength={140}
-                    value={pubTagline}
-                    onChange={(e) => setPubTagline(e.target.value)}
-                    placeholder="Short hook shown on storefront cards..."
-                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-300">Category *</label>
-                    <select
-                      value={pubCategory}
-                      onChange={(e) => setPubCategory(e.target.value as AppCategory)}
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="Game">Game</option>
-                      <option value="Creative App">Creative App</option>
-                      <option value="Developer Tool">Developer Tool</option>
-                      <option value="Utility">Utility</option>
-                      <option value="Simulation">Simulation</option>
-                    </select>
+                {/* Part B: Mandatory Publisher Questionnaire */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-mono text-emerald-400">
+                      SECTION B · MANDATORY PUBLISHER QUESTIONNAIRE
+                    </span>
+                    {verifiedCertId && (
+                      <span className="text-xs font-mono text-emerald-300">
+                        VERIFIED: {verifiedCertId}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-300">
-                      Interactive Runtime Engine *
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        1. Studio or Publisher Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={qStudioName}
+                        onChange={(e) => setQStudioName(e.target.value)}
+                        placeholder="e.g., Horizon Indie Works"
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        2. Player Support Contact (Email or URL) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={3}
+                        maxLength={120}
+                        value={qSupportContact}
+                        onChange={(e) => setQSupportContact(e.target.value)}
+                        placeholder="support@yourstudio.com"
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        3. Target Age Rating *
+                      </label>
+                      <select
+                        value={qAgeRating}
+                        onChange={(e) => setQAgeRating(e.target.value as AgeRating)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Everyone (E)">Everyone (E)</option>
+                        <option value="Everyone 10+ (E10+)">Everyone 10+ (E10+)</option>
+                        <option value="Teen (T)">Teen (T)</option>
+                        <option value="Mature 17+ (M)">Mature 17+ (M)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        4. Action / Combat Content Advisory *
+                      </label>
+                      <select
+                        value={qContentAdvisory}
+                        onChange={(e) => setQContentAdvisory(e.target.value as ContentAdvisory)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="None">None</option>
+                        <option value="Mild Cartoon / Tactical">Mild Cartoon / Tactical</option>
+                        <option value="Moderate">Moderate</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        5. Data Privacy &amp; Telemetry Declaration *
+                      </label>
+                      <select
+                        value={qDataPrivacy}
+                        onChange={(e) => setQDataPrivacy(e.target.value as DataPrivacyPolicy)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Zero Data Collected">Zero Data Collected</option>
+                        <option value="Anonymous Gameplay Telemetry Only">Anonymous Gameplay Telemetry Only</option>
+                        <option value="Authenticated Account Sync">Authenticated Account Sync</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        6. Accessibility &amp; Input Features *
+                      </label>
+                      <select
+                        value={qAccessibility}
+                        onChange={(e) => setQAccessibility(e.target.value as AccessibilityFeatureSet)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Keyboard + Mouse + High-Contrast">Keyboard + Mouse + High-Contrast</option>
+                        <option value="Touch + Screen Reader Friendly">Touch + Screen Reader Friendly</option>
+                        <option value="Full Controller + Audio Cues">Full Controller + Audio Cues</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Monetization & Payout Configuration */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        7. Monetization Model *
+                      </label>
+                      <select
+                        value={qMonetization}
+                        onChange={(e) => {
+                          const next = e.target.value as MonetizationModel;
+                          setQMonetization(next);
+                          if (next === 'Free to Play') {
+                            setQPriceDollars('0.00');
+                          } else if (parseFloat(qPriceDollars || '0') <= 0) {
+                            setQPriceDollars('4.99');
+                          }
+                        }}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Free to Play">Free to Play</option>
+                        <option value="One-Time Purchase">One-Time Purchase</option>
+                        <option value="Creator Supporter Pass">Creator Supporter Pass</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        8. License Price (USD $) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={qMonetization === 'One-Time Purchase' ? '1.00' : '0.00'}
+                        max="999.99"
+                        disabled={qMonetization === 'Free to Play'}
+                        value={qPriceDollars}
+                        onChange={(e) => setQPriceDollars(e.target.value)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white disabled:opacity-50 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        9. Creator Payout Rail *
+                      </label>
+                      <select
+                        value={qPayoutMethod}
+                        onChange={(e) => setQPayoutMethod(e.target.value as PayoutMethod)}
+                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="Stripe Connect Express (85% Creator / 15% Platform)">
+                          Stripe Connect Express (85% / 15%)
+                        </option>
+                        <option value="Instant Card Payout">Instant Card Payout</option>
+                        <option value="Open-Source Community Grant">Open-Source Community Grant</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-2.5">
+                    <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={qTestedSandbox}
+                        onChange={(e) => setQTestedSandbox(e.target.checked)}
+                        className="mt-0.5 accent-indigo-500"
+                      />
+                      <span>
+                        10. I confirm this application or game has been tested in the browser sandbox with working
+                        controls and zero broken assets.
+                      </span>
                     </label>
-                    <select
-                      value={pubPlayType}
-                      onChange={(e) => setPubPlayType(e.target.value as PlayableEngineType)}
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="starlight-tactics">2D Tactical Space Grid Engine</option>
-                      <option value="pulsepad-synth">16-Step Web Audio Synth Sequencer</option>
-                      <option value="botanica-word">Accessible Word &amp; Tile Puzzle Engine</option>
-                      <option value="patchforge-vision">Code Diff &amp; Vision Inspector</option>
-                      <option value="custom-embed">Custom Web App / External Build URL</option>
-                    </select>
-                  </div>
-                </div>
-
-                {pubPlayType === 'custom-embed' && (
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-300">
-                      External Web App URL (optional, max 500 chars)
+                    <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={qAcceptedTerms}
+                        onChange={(e) => setQAcceptedTerms(e.target.checked)}
+                        className="mt-0.5 accent-indigo-500"
+                      />
+                      <span>
+                        11. I accept the App and Game Playground Publisher Distribution Agreement and 85% Creator / 15%
+                        Platform payment split terms.
+                      </span>
                     </label>
-                    <input
-                      type="url"
-                      maxLength={500}
-                      value={pubExternalUrl}
-                      onChange={(e) => setPubExternalUrl(e.target.value)}
-                      placeholder="https://your-app-url.example.com"
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                    />
                   </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-300">
-                    Full Description, Controls &amp; Release Notes (10–1500 chars) *
-                  </label>
-                  <textarea
-                    rows={4}
-                    required
-                    minLength={10}
-                    maxLength={1500}
-                    value={pubDescription}
-                    onChange={(e) => setPubDescription(e.target.value)}
-                    placeholder="Explain how people play or use your app, key controls, and what makes it special..."
-                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-xs text-slate-400">
-                    {user
-                      ? `Publishing as ${user.displayName || user.email}`
-                      : 'Sign in with Google required to publish'}
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleVerifyQuestionnaireOnly}
+                    disabled={verifyingQuestionnaire}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-700/60 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    {verifyingQuestionnaire ? 'Validating...' : 'Pre-Check Questionnaire on Backend'}
+                  </button>
+
                   <button
                     type="submit"
                     disabled={isPublishing}
                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Layers className="w-4 h-4" />
-                    {isPublishing ? 'Publishing to Catalog...' : 'Publish to Playground'}
+                    {isPublishing ? 'Validating & Publishing...' : 'Verify Questionnaire & Publish App'}
                   </button>
                 </div>
               </form>
 
-              {/* Right Column: Gemini 4 Argon Screenshot Autofill Helper & Card Preview */}
+              {/* Right Column: Gemini 4 Argon Screenshot Autofill + Live Storefront Preview */}
               <div className="lg:col-span-5 space-y-6">
                 <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-4">
                   <div className="flex items-center justify-between">
@@ -1478,8 +2334,13 @@ export default function App() {
 
                 {/* Live Storefront Card Preview */}
                 <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-slate-800 text-xs font-mono text-slate-400">
-                    LIVE STOREFRONT CARD PREVIEW
+                  <div className="px-4 py-2.5 border-b border-slate-800 text-xs font-mono text-slate-400 flex items-center justify-between">
+                    <span>LIVE STOREFRONT CARD PREVIEW</span>
+                    <span>
+                      {qMonetization === 'Free to Play'
+                        ? 'Free'
+                        : `$${(parseFloat(qPriceDollars || '0') || 0).toFixed(2)}`}
+                    </span>
                   </div>
                   <ArtworkCover
                     playType={pubPlayType}
@@ -1488,12 +2349,15 @@ export default function App() {
                     className="h-44 w-full"
                   />
                   <div className="p-5 space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
-                      <span>{pubCategory}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>v{pubVersion || '1.0.0'}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>0 plays</span>
+                    <div className="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums">
+                      <span>
+                        {pubCategory} · {qAgeRating}
+                      </span>
+                      <span className="text-white font-semibold">
+                        {qMonetization === 'Free to Play'
+                          ? 'Free'
+                          : `$${(parseFloat(qPriceDollars || '0') || 0).toFixed(2)}`}
+                      </span>
                     </div>
                     <div className="text-base font-bold font-display text-white">
                       {pubTitle || 'Your App or Game Title'}
@@ -1501,18 +2365,484 @@ export default function App() {
                     <p className="text-xs text-slate-300 line-clamp-2">
                       {pubTagline || 'Your single-line tagline will appear here on the catalog grid.'}
                     </p>
+                    <div className="text-[11px] font-mono text-slate-400 pt-1">
+                      {qDataPrivacy} · {qAccessibility}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* ===================================================================
+            VIEW 5: PAYMENTS, CREATOR PAYOUTS & QUESTIONNAIRE COMPLIANCE LEDGER
+           =================================================================== */}
+        {activeSection === 'payments' && (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="text-xs font-mono text-indigo-400">
+                  BACKEND PAYMENT ENGINE &amp; FIRESTORE TRANSACTION LEDGER
+                </div>
+                <h2 className="text-2xl font-bold font-display text-white mt-1">
+                  04. Payments, Creator Payouts &amp; Compliance Certificates
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Inspect real-time payment processing telemetry from the Express payment gateway, view your personal
+                  purchase receipts, and track completed Publisher Questionnaires.
+                </p>
+              </div>
+
+              <button
+                onClick={() => handleOpenCheckout(BUILT_IN_APPS[1])}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <CreditCard className="w-4 h-4" />
+                Run Test Payment ($4.99)
+              </button>
+            </div>
+
+            {/* 4-Column Backend Gateway KPI Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
+                <div className="text-xs font-mono text-slate-400">GATEWAY GROSS VOLUME</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white">
+                  {formatPriceCents(
+                    (backendLedger?.totalVolumeCents || 0) +
+                      userPayments.reduce((acc, p) => acc + p.amountCents, 0)
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">Processed via /api/payments/execute</div>
+              </div>
+
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
+                <div className="text-xs font-mono text-slate-400">CREATOR NET PAYOUTS (85%)</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">
+                  {formatPriceCents(
+                    (backendLedger?.totalCreatorPayoutCents || 0) +
+                      creatorSales.reduce((acc, p) => acc + p.creatorNetCents, 0)
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">Direct creator distribution</div>
+              </div>
+
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
+                <div className="text-xs font-mono text-slate-400">PLATFORM HOSTING FEE (15%)</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-indigo-300">
+                  {formatPriceCents(
+                    (backendLedger?.totalPlatformFeeCents || 0) +
+                      userPayments.reduce((acc, p) => acc + p.platformFeeCents, 0)
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">Sandbox &amp; CDN bandwidth</div>
+              </div>
+
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
+                <div className="text-xs font-mono text-slate-400">VERIFIED QUESTIONNAIRES</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white">
+                  {myQuestionnaires.length}
+                </div>
+                <div className="text-xs text-slate-400">Active compliance certificates</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Left Column: Completed Payment Receipts Table */}
+              <div className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                  <h3 className="text-sm font-bold font-display text-white">
+                    Settled Payment Transactions &amp; Receipts
+                  </h3>
+                  <span className="text-xs font-mono text-slate-400 tabular-nums">
+                    {userPayments.length + (backendLedger?.recentReceipts.length || 0)} RECORDS
+                  </span>
+                </div>
+
+                {userPayments.length === 0 && (!backendLedger || backendLedger.recentReceipts.length === 0) ? (
+                  <div className="p-8 text-center space-y-3">
+                    <Receipt className="w-7 h-7 text-slate-500 mx-auto" />
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-white">No payment transactions recorded yet</div>
+                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                        Purchase an app license or send a Creator Supporter Pass to see live backend settlement and
+                        Firestore receipt records here.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleOpenCheckout(BUILT_IN_APPS[1])}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Run First Checkout ($4.99)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-mono">
+                          <th className="py-3 px-4">RECEIPT</th>
+                          <th className="py-3 px-4">RELEASE</th>
+                          <th className="py-3 px-4">METHOD</th>
+                          <th className="py-3 px-4 text-right">CREATOR (85%)</th>
+                          <th className="py-3 px-4 text-right">TOTAL</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/70 font-mono tabular-nums">
+                        {userPayments.map((pay) => (
+                          <tr key={pay.id} className="hover:bg-slate-900/60">
+                            <td className="py-3 px-4 text-indigo-300">{pay.receiptNumber}</td>
+                            <td className="py-3 px-4 font-sans text-white">{pay.appTitle}</td>
+                            <td className="py-3 px-4 text-slate-300">
+                              {pay.cardBrand} •••• {pay.cardLast4}
+                            </td>
+                            <td className="py-3 px-4 text-right text-emerald-400">
+                              {formatPriceCents(pay.creatorNetCents)}
+                            </td>
+                            <td className="py-3 px-4 text-right text-white font-semibold">
+                              {formatPriceCents(pay.amountCents)}
+                            </td>
+                          </tr>
+                        ))}
+                        {userPayments.length === 0 &&
+                          backendLedger?.recentReceipts.map((r) => (
+                            <tr key={r.intentId} className="hover:bg-slate-900/60">
+                              <td className="py-3 px-4 text-indigo-300">{r.receiptNumber}</td>
+                              <td className="py-3 px-4 font-sans text-white">{r.appTitle}</td>
+                              <td className="py-3 px-4 text-slate-300">
+                                {r.cardBrand} •••• {r.cardLast4}
+                              </td>
+                              <td className="py-3 px-4 text-right text-emerald-400">
+                                {formatPriceCents(r.creatorNetCents)}
+                              </td>
+                              <td className="py-3 px-4 text-right text-white font-semibold">
+                                {formatPriceCents(r.amountCents)}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Publisher Questionnaire Certificates */}
+              <div className="lg:col-span-5 bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-bold font-display text-white">
+                    Your Publisher Questionnaire Certificates
+                  </h3>
+                  <span className="text-xs font-mono text-slate-400 tabular-nums">
+                    {myQuestionnaires.length} FILED
+                  </span>
+                </div>
+
+                {myQuestionnaires.length === 0 ? (
+                  <div className="text-xs text-slate-400 space-y-3 py-4">
+                    <p>
+                      When you submit a new app or game in the Publisher Studio, your verified questionnaire record and
+                      compliance certificate appear here.
+                    </p>
+                    <button
+                      onClick={() => setActiveSection('publish')}
+                      className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                    >
+                      Open Publisher Questionnaire
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                    {myQuestionnaires.map((q) => (
+                      <div
+                        key={q.id}
+                        className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5 text-xs"
+                      >
+                        <div className="flex items-center justify-between font-mono text-emerald-400">
+                          <span>{q.complianceCertificateId}</span>
+                          <span className="text-slate-400">{q.createdAtLabel}</span>
+                        </div>
+                        <div className="font-semibold text-white">
+                          Studio: {q.studioName} · {q.ageRating}
+                        </div>
+                        <div className="text-slate-400">
+                          {q.dataPrivacyPolicy} · {q.accessibilityFeatures}
+                        </div>
+                        <div className="text-slate-400 font-mono text-[11px]">
+                          Payout: {q.payoutMethod}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* =====================================================================
+          CONTIGUOUS PAYMENT CHECKOUT MODAL (/api/payments/create-intent + execute)
+         ===================================================================== */}
+      {checkoutApp && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-800">
+              <div>
+                <div className="text-xs font-mono text-indigo-400">
+                  PLAYGROUND COMMERCE GATEWAY · 85% CREATOR PAYOUT
+                </div>
+                <h3 className="text-lg font-bold font-display text-white mt-0.5">
+                  {checkoutApp.title}
+                </h3>
+                <p className="text-xs text-slate-400">By {checkoutApp.authorName}</p>
+              </div>
+              <button
+                onClick={() => setCheckoutApp(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {settledReceipt ? (
+              <div className="space-y-5">
+                <div className="bg-emerald-950/50 border border-emerald-700/70 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-300 font-semibold text-sm">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Payment Authorized &amp; Settled
+                  </div>
+                  <p className="text-xs text-emerald-100/90">
+                    Receipt <code className="font-mono font-bold">{settledReceipt.receiptNumber}</code> has been issued
+                    by the backend payment server{user ? ' and saved to your Firestore account ledger.' : '.'}
+                  </p>
+                </div>
+
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2 text-xs font-mono tabular-nums">
+                  <div className="flex justify-between text-slate-400">
+                    <span>ITEM</span>
+                    <span className="text-white">{settledReceipt.paymentType}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>PAYMENT METHOD</span>
+                    <span className="text-white">
+                      {settledReceipt.cardBrand} •••• {settledReceipt.cardLast4}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>CREATOR PAYOUT (85%)</span>
+                    <span className="text-emerald-400">{formatPriceCents(settledReceipt.creatorNetCents)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>PLATFORM FEE (15%)</span>
+                    <span className="text-slate-300">{formatPriceCents(settledReceipt.platformFeeCents)}</span>
+                  </div>
+                  <div className="flex justify-between text-white font-bold pt-2 border-t border-slate-800 text-sm">
+                    <span>TOTAL SETTLED</span>
+                    <span>{formatPriceCents(settledReceipt.amountCents)} USD</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      const target = checkoutApp;
+                      setCheckoutApp(null);
+                      setActiveSection('payments');
+                      if (target) setSelectedAppId(target.id);
+                    }}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                  >
+                    View in Payment Ledger
+                  </button>
+                  <button
+                    onClick={() => {
+                      const target = checkoutApp;
+                      setCheckoutApp(null);
+                      if (target) handleLaunchApp(target);
+                    }}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                  >
+                    Launch {checkoutApp.title}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleRunPayment} className="space-y-4">
+                {/* Explicit Summary of What the Buyer Receives */}
+                {(() => {
+                  const perkInfo = getSupporterPerksForApp(checkoutApp.playType, checkoutApp.priceCents);
+                  return (
+                    <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-3.5 space-y-2">
+                      <div className="text-xs font-mono text-indigo-300 font-semibold">
+                        WHAT YOU RECEIVE · {perkInfo.headline.toUpperCase()}
+                      </div>
+                      <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside">
+                        {perkInfo.perks.map((perk, idx) => (
+                          <li key={idx}>{perk}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
+
+                {/* Tier Selection */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Select License or Creator Support Tier
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 font-mono text-xs tabular-nums">
+                    {[
+                      {
+                        label:
+                          checkoutApp.priceCents > 0
+                            ? `License (${formatPriceCents(checkoutApp.priceCents)})`
+                            : 'Supporter ($3.00)',
+                        cents: checkoutApp.priceCents > 0 ? checkoutApp.priceCents : 300,
+                        type:
+                          checkoutApp.priceCents > 0
+                            ? ('App License Purchase' as const)
+                            : ('Creator Supporter Pass' as const),
+                      },
+                      {
+                        label: 'Supporter ($5.00)',
+                        cents: 500,
+                        type: 'Creator Supporter Pass' as const,
+                      },
+                      {
+                        label: 'Patron ($15.00)',
+                        cents: 1500,
+                        type: 'Creator Supporter Pass' as const,
+                      },
+                    ].map((tier) => (
+                      <button
+                        key={tier.label}
+                        type="button"
+                        onClick={() => {
+                          setCheckoutAmountCents(tier.cents);
+                          setCheckoutType(tier.type);
+                        }}
+                        className={`py-2 px-2.5 rounded-lg border text-center transition-colors cursor-pointer ${
+                          checkoutAmountCents === tier.cents
+                            ? 'bg-indigo-600/20 border-indigo-500 text-white font-semibold'
+                            : 'bg-[#0B0F17] border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {tier.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Transparent Revenue Breakdown */}
+                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5 text-xs font-mono tabular-nums">
+                  <div className="flex justify-between text-slate-400">
+                    <span>CREATOR DIRECT SHARE (85%)</span>
+                    <span className="text-emerald-400">
+                      {formatPriceCents(Math.round(checkoutAmountCents * 0.85))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>PLATFORM INFRASTRUCTURE (15%)</span>
+                    <span>
+                      {formatPriceCents(checkoutAmountCents - Math.round(checkoutAmountCents * 0.85))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-white font-bold pt-1.5 border-t border-slate-800">
+                    <span>TOTAL CHARGE</span>
+                    <span>{formatPriceCents(checkoutAmountCents)} USD</span>
+                  </div>
+                </div>
+
+                {/* Card Details */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-300">Card Details</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCardNumber('4242 4242 4242 4242');
+                        setCardExpiry('08/29');
+                        setCardCvc('842');
+                      }}
+                      className="text-[11px] font-mono text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      Autofill Test Visa (4242)
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    required
+                    value={cardholderName}
+                    onChange={(e) => setCardholderName(e.target.value)}
+                    placeholder="Cardholder Name"
+                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+
+                  <input
+                    type="text"
+                    required
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    placeholder="4242 4242 4242 4242"
+                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                  />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      required
+                      value={cardExpiry}
+                      onChange={(e) => setCardExpiry(e.target.value)}
+                      placeholder="MM/YY"
+                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={cardCvc}
+                      onChange={(e) => setCardCvc(e.target.value)}
+                      placeholder="CVC"
+                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {paymentError && (
+                  <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-200">
+                    {paymentError}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutApp(null)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={processingPayment}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    {processingPayment
+                      ? 'Authorizing Payment...'
+                      : `Pay ${formatPriceCents(checkoutAmountCents)} USD`}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Quiet Editorial Footer */}
       <footer className="border-t border-slate-800/80 py-6 px-6 lg:px-10 mt-12">
         <div className="max-w-[1360px] mx-auto flex flex-wrap items-center justify-between gap-4 text-xs text-slate-500">
-          <span>App and Game Playground · Community Publishing &amp; Arcade Platform</span>
+          <span>App and Game Playground · Community Publishing, Questionnaire Vetting &amp; Payment Platform</span>
           <div className="flex items-center gap-6">
             <button
               onClick={() => setActiveSection('discover')}
@@ -1530,7 +2860,13 @@ export default function App() {
               onClick={() => setActiveSection('publish')}
               className="hover:text-slate-300 transition-colors cursor-pointer"
             >
-              Publish Studio
+              Publisher Questionnaire
+            </button>
+            <button
+              onClick={() => setActiveSection('payments')}
+              className="hover:text-slate-300 transition-colors cursor-pointer"
+            >
+              Payments &amp; Ledger
             </button>
           </div>
         </div>

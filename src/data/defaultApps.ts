@@ -12,6 +12,34 @@ export type AppCategory =
   | 'Utility'
   | 'Simulation';
 
+export type MonetizationModel =
+  | 'Free to Play'
+  | 'One-Time Purchase'
+  | 'Creator Supporter Pass';
+
+export type AgeRating =
+  | 'Everyone (E)'
+  | 'Everyone 10+ (E10+)'
+  | 'Teen (T)'
+  | 'Mature 17+ (M)';
+
+export type ContentAdvisory = 'None' | 'Mild Cartoon / Tactical' | 'Moderate';
+
+export type DataPrivacyPolicy =
+  | 'Zero Data Collected'
+  | 'Anonymous Gameplay Telemetry Only'
+  | 'Authenticated Account Sync';
+
+export type AccessibilityFeatureSet =
+  | 'Keyboard + Mouse + High-Contrast'
+  | 'Touch + Screen Reader Friendly'
+  | 'Full Controller + Audio Cues';
+
+export type PayoutMethod =
+  | 'Stripe Connect Express (85% Creator / 15% Platform)'
+  | 'Instant Card Payout'
+  | 'Open-Source Community Grant';
+
 export interface PlaygroundAppItem {
   id: string;
   title: string;
@@ -26,6 +54,11 @@ export interface PlaygroundAppItem {
   isPublic: boolean;
   playsCount: number;
   likesCount: number;
+  priceCents: number;
+  monetizationModel: MonetizationModel;
+  ageRating: AgeRating;
+  dataPrivacyPolicy: DataPrivacyPolicy;
+  accessibilityFeatures: AccessibilityFeatureSet;
   aiVisualSummary: string;
   createdAtLabel: string;
   isBuiltIn?: boolean;
@@ -41,6 +74,41 @@ export interface AppReviewItem {
   createdAtLabel: string;
 }
 
+export interface PaymentRecordItem {
+  id: string;
+  appId: string;
+  appTitle: string;
+  buyerId: string;
+  buyerName: string;
+  recipientAuthorId: string;
+  amountCents: number;
+  creatorNetCents: number;
+  platformFeeCents: number;
+  currency: string;
+  paymentType: 'App License Purchase' | 'Creator Supporter Pass';
+  cardBrand: string;
+  cardLast4: string;
+  receiptNumber: string;
+  status: string;
+  createdAtLabel: string;
+}
+
+export interface PublisherQuestionnaireItem {
+  id: string;
+  appId: string;
+  authorId: string;
+  studioName: string;
+  ageRating: AgeRating;
+  contentAdvisory: ContentAdvisory;
+  dataPrivacyPolicy: DataPrivacyPolicy;
+  accessibilityFeatures: AccessibilityFeatureSet;
+  monetizationModel: MonetizationModel;
+  payoutMethod: PayoutMethod;
+  supportContact: string;
+  complianceCertificateId: string;
+  createdAtLabel: string;
+}
+
 export interface GeminiImageAnalysisResult {
   suggestedTitle: string;
   suggestedTagline: string;
@@ -49,6 +117,66 @@ export interface GeminiImageAnalysisResult {
   extractedText: string;
   technicalDiagnosis: string;
   generatedPatch: string;
+}
+
+export function formatPriceCents(cents: number): string {
+  if (!cents || cents <= 0) return 'Free';
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+export function getSupporterPerksForApp(playType: PlayableEngineType, priceCents: number): {
+  headline: string;
+  perks: string[];
+} {
+  const isPaidLicense = priceCents > 0;
+  if (playType === 'starlight-tactics') {
+    return {
+      headline: isPaidLicense ? 'Full Commercial License + Command Perks' : 'Starlight Commander Supporter Pass',
+      perks: [
+        'Unlocks Overdrive Fleet Mode: 4 Action Points (AP) per turn instead of 3 AP',
+        'Unlocks Heavy Ion Cannon button (55 DMG long-range strike) & +30 starting shields',
+        'Verified Supporter Patron badge on your community reviews + 85% direct creator payout',
+      ],
+    };
+  }
+  if (playType === 'pulsepad-synth') {
+    return {
+      headline: isPaidLicense ? 'Full Synth Studio License & Pro Expansion' : 'Audio Lab Supporter Pass',
+      perks: [
+        'Unlocks the Cyber-Arpeggio 16-Step Master Preset pattern',
+        'Unlocks 1-Click JSON Loop & Sequence Exporter for external DAWs',
+        'Verified Supporter Patron badge on your community reviews + 85% direct creator payout',
+      ],
+    };
+  }
+  if (playType === 'botanica-word') {
+    return {
+      headline: isPaidLicense ? 'Full Sanctuary License + Botanist Toolkit' : 'Botanical Patron Supporter Pass',
+      perks: [
+        'Unlocks 1-Click "Instant Specimen Reveal" to auto-solve any word on the board',
+        'Unlocks Golden Herbarium tile accent mode during puzzle play',
+        'Verified Supporter Patron badge on your community reviews + 85% direct creator payout',
+      ],
+    };
+  }
+  if (playType === 'patchforge-vision') {
+    return {
+      headline: isPaidLicense ? 'Pro SDK Patch Studio License' : 'Maintainer Supporter Pass',
+      perks: [
+        'Unlocks full git format-patch bundle including unit test suite (test_types.py)',
+        'Unlocks downloadable Markdown Diagnostic Report export',
+        'Verified Supporter Patron badge on your community reviews + 85% direct creator payout',
+      ],
+    };
+  }
+  return {
+    headline: isPaidLicense ? 'Full Application License & Patron Perks' : 'Creator Supporter Pass',
+    perks: [
+      'Unlocks Supporter Overdrive mode and bonus controls in the interactive stage',
+      'Grants permanent license receipt in your Firestore Payments Ledger',
+      'Sends 85% of your purchase directly to the independent creator',
+    ],
+  };
 }
 
 export const ISSUE_3060_PATCH = `diff --git a/google/genai/_automatic_function_calling_util.py b/google/genai/_automatic_function_calling_util.py
@@ -120,7 +248,7 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     title: 'Starlight Tactics: Sector Zero',
     tagline: 'Turn-based 2D hex-grid starship command with autonomous fleet AI and shield telemetry.',
     description:
-      'Command three vanguard corvettes across a 6x5 deep-space sector grid. Balance reactor energy between plasma cannons, warp thrusters, and deflector shields to outmaneuver the autonomous Dreadnought AI. Built with a deterministic game state machine and real-time Web Audio synthesized sound effects.',
+      'Command two vanguard corvettes across a 6x5 deep-space sector grid. Balance reactor energy between plasma cannons, warp thrusters, and deflector shields to outmaneuver the autonomous Dreadnought AI. Built with a deterministic game state machine and real-time Web Audio synthesized sound effects.',
     category: 'Game',
     playType: 'starlight-tactics',
     externalUrl: '',
@@ -130,6 +258,11 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     isPublic: true,
     playsCount: 1420,
     likesCount: 389,
+    priceCents: 0,
+    monetizationModel: 'Creator Supporter Pass',
+    ageRating: 'Everyone 10+ (E10+)',
+    dataPrivacyPolicy: 'Zero Data Collected',
+    accessibilityFeatures: 'Keyboard + Mouse + High-Contrast',
     aiVisualSummary:
       'Verified 60-30-10 velvet navy arena palette (#0A192F), high-contrast tactical ship tokens, non-hue-only shield & hull bars, and responsive 180ms turn transitions.',
     createdAtLabel: 'Featured Release',
@@ -150,6 +283,11 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     isPublic: true,
     playsCount: 985,
     likesCount: 312,
+    priceCents: 499,
+    monetizationModel: 'One-Time Purchase',
+    ageRating: 'Everyone (E)',
+    dataPrivacyPolicy: 'Zero Data Collected',
+    accessibilityFeatures: 'Full Controller + Audio Cues',
     aiVisualSummary:
       'Tactile dark-slate hardware matrix with tabular BPM readouts, active step playhead indicator, and accessible 44px pad targets.',
     createdAtLabel: 'Featured Release',
@@ -160,7 +298,7 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     title: 'Botanica Word & Tile Sanctuary',
     tagline: 'Accessible large-type botanical word search puzzle with a 4-tier progressive hint engine.',
     description:
-      'Designed for unhurried clarity and senior-friendly accessibility. Discover hidden botanical genera across an 8x8 high-contrast letter matrix using large 48px touch tiles and a 4-tier hint system: Letter Reveal, Orientation Clue, Column Indicator, and First-Letter Highlight.',
+      'Designed for unhurried clarity and senior-friendly accessibility. Discover hidden botanical genera across a high-contrast letter matrix using large 48px touch tiles and a 4-tier hint system: Letter Reveal, Orientation Clue, Column Indicator, and First-Letter Highlight.',
     category: 'Game',
     playType: 'botanica-word',
     externalUrl: '',
@@ -170,6 +308,11 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     isPublic: true,
     playsCount: 1190,
     likesCount: 428,
+    priceCents: 0,
+    monetizationModel: 'Free to Play',
+    ageRating: 'Everyone (E)',
+    dataPrivacyPolicy: 'Zero Data Collected',
+    accessibilityFeatures: 'Touch + Screen Reader Friendly',
     aiVisualSummary:
       'WCAG AAA contrast ratios, 48px minimum grid cells, zero countdown stress timers, and explicit 4-stage progressive assistance.',
     createdAtLabel: 'Featured Release',
@@ -190,6 +333,11 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     isPublic: true,
     playsCount: 864,
     likesCount: 295,
+    priceCents: 900,
+    monetizationModel: 'One-Time Purchase',
+    ageRating: 'Everyone (E)',
+    dataPrivacyPolicy: 'Zero Data Collected',
+    accessibilityFeatures: 'Keyboard + Mouse + High-Contrast',
     aiVisualSummary:
       'Includes verified fix-issue-3060.patch for googleapis/python-genai plus live server-side gemini-4-argon multimodal image understanding.',
     createdAtLabel: 'Featured Release',
@@ -197,7 +345,6 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
   },
 ];
 
-// Helper that generates a valid PNG data URL on the fly for sample testing with Gemini 4 Argon
 export function createSampleDiagnosticImage(preset: 'game-ui' | 'python-traceback' | 'synth-app'): {
   dataUrl: string;
   mimeType: string;
