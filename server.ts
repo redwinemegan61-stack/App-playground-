@@ -38,7 +38,7 @@ interface ServerPaymentIntent {
   creatorNetCents: number;
   platformFeeCents: number;
   currency: 'USD';
-  paymentType: 'App License Purchase' | 'Creator Supporter Pass';
+  paymentType: 'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)';
   status: 'requires_payment_method' | 'succeeded';
   createdAtIso: string;
   receiptNumber?: string;
@@ -88,15 +88,16 @@ app.post('/api/payments/confirm-stripe-link', (req, res) => {
       paymentType,
     } = req.body;
 
-    const cleanAmount = Math.max(100, Math.min(99999, Math.round(Number(amountCents || 500))));
-    const creatorNetCents = Math.round(cleanAmount * 0.85);
+    const cleanAmount = Math.max(99, Math.min(99999, Math.round(Number(amountCents || 99))));
+    const isUploadFee = paymentType === 'Publisher Upload Fee ($0.99)';
+    const creatorNetCents = isUploadFee ? 0 : Math.round(cleanAmount * 0.85);
     const platformFeeCents = cleanAmount - creatorNetCents;
     const intentId = `pi_stripe_${crypto.randomBytes(6).toString('hex')}`;
     const receiptNumber = `RCPT-STRIPE-${Date.now().toString(36).toUpperCase()}`;
 
     const transaction: ServerPaymentIntent = {
       intentId,
-      appId: String(appId || 'app'),
+      appId: String(appId || 'app-upload-fee'),
       appTitle: String(appTitle || 'Playground Release').slice(0, 80),
       recipientAuthorId: String(recipientAuthorId || 'playground-studio'),
       buyerId: String(buyerId || 'anonymous'),
@@ -105,8 +106,11 @@ app.post('/api/payments/confirm-stripe-link', (req, res) => {
       creatorNetCents,
       platformFeeCents,
       currency: 'USD',
-      paymentType:
-        paymentType === 'Creator Supporter Pass' ? 'Creator Supporter Pass' : 'App License Purchase',
+      paymentType: isUploadFee
+        ? 'Publisher Upload Fee ($0.99)'
+        : paymentType === 'Creator Supporter Pass'
+          ? 'Creator Supporter Pass'
+          : 'App License Purchase',
       status: 'succeeded',
       createdAtIso: new Date().toISOString(),
       cardBrand: 'Stripe Link',
@@ -174,9 +178,9 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
     }
 
     const numericPrice = Number(priceCents || 0);
-    if (monetizationModel === 'One-Time Purchase' && (numericPrice < 100 || numericPrice > 99999)) {
+    if (monetizationModel === 'One-Time Purchase' && (numericPrice < 99 || numericPrice > 99999)) {
       res.status(400).json({
-        error: 'One-Time Purchase apps must set a price between $1.00 (100 cents) and $999.99 (99999 cents).',
+        error: 'One-Time Purchase apps must set a price between $0.99 (99 cents) and $999.99 (99999 cents).',
       });
       return;
     }
@@ -189,6 +193,7 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
     res.json({
       verified: true,
       complianceCertificateId,
+      uploadDeploymentFeeCents: 99,
       summary: {
         studioName: String(studioName).trim(),
         ageRating,
@@ -197,10 +202,11 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
         accessibilityFeatures,
         monetizationModel,
         payoutMethod,
+        uploadDeploymentFeeCents: 99,
         priceCents: monetizationModel === 'Free to Play' ? 0 : numericPrice,
         creatorNetCents: monetizationModel === 'Free to Play' ? 0 : creatorNetCents,
         platformFeeCents: monetizationModel === 'Free to Play' ? 0 : platformFeeCents,
-        revenueShareLabel: '85% Creator Net / 15% Platform Infrastructure',
+        revenueShareLabel: '$0.99 Per App Upload Fee · 85% Creator Net / 15% Platform Split',
       },
     });
   } catch (err: unknown) {
@@ -210,7 +216,7 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
 });
 
 // 2. POST /api/payments/create-intent
-// Initializes a payment intent with 85/15 creator revenue split calculation
+// Initializes a payment intent with $0.99 Upload Fee or 85/15 creator revenue split calculation
 app.post('/api/payments/create-intent', (req, res) => {
   try {
     const {
@@ -224,14 +230,15 @@ app.post('/api/payments/create-intent', (req, res) => {
     } = req.body;
 
     const cleanAmount = Math.round(Number(amountCents || 0));
-    if (!appId || !appTitle || cleanAmount < 100 || cleanAmount > 99999) {
+    if (!appId || !appTitle || cleanAmount < 99 || cleanAmount > 99999) {
       res.status(400).json({
-        error: 'Payment amount must be between $1.00 (100 cents) and $999.99 (99999 cents).',
+        error: 'Payment amount must be between $0.99 (99 cents) and $999.99 (99999 cents).',
       });
       return;
     }
 
-    const creatorNetCents = Math.round(cleanAmount * 0.85);
+    const isUploadFee = paymentType === 'Publisher Upload Fee ($0.99)';
+    const creatorNetCents = isUploadFee ? 0 : Math.round(cleanAmount * 0.85);
     const platformFeeCents = cleanAmount - creatorNetCents;
     const intentId = `pi_pg_${crypto.randomBytes(8).toString('hex')}`;
 
@@ -246,8 +253,11 @@ app.post('/api/payments/create-intent', (req, res) => {
       creatorNetCents,
       platformFeeCents,
       currency: 'USD',
-      paymentType:
-        paymentType === 'Creator Supporter Pass' ? 'Creator Supporter Pass' : 'App License Purchase',
+      paymentType: isUploadFee
+        ? 'Publisher Upload Fee ($0.99)'
+        : paymentType === 'Creator Supporter Pass'
+          ? 'Creator Supporter Pass'
+          : 'App License Purchase',
       status: 'requires_payment_method',
       createdAtIso: new Date().toISOString(),
     };

@@ -5,7 +5,7 @@
 1. **Master Gate & Relational Integrity**:
    - Every review document in `/apps/{appId}/reviews/{reviewId}` must belong to an existing parent `/apps/{appId}` document (`exists(/databases/$(database)/documents/apps/$(appId))`) and its `appId` field must match `{appId}`.
    - Every `/publisherQuestionnaires/{questionnaireId}` document requires `incoming().authorId == request.auth.uid`, `acceptedPublisherTerms == true`, and `testedOfflineAndSandbox == true`.
-   - Every `/payments/{paymentId}` document requires `incoming().buyerId == request.auth.uid`, `amountCents >= 100 && amountCents <= 99999`, `creatorNetCents + platformFeeCents == amountCents`, and `status == 'succeeded'`. Payments are immutable once recorded (terminal state locking).
+   - Every `/payments/{paymentId}` document requires `incoming().buyerId == request.auth.uid`, `amountCents >= 99 && amountCents <= 99999`, `creatorNetCents + platformFeeCents == amountCents`, and `status == 'succeeded'`. Payments are immutable once recorded (terminal state locking).
 2. **Identity & Verified Email Enforcement**:
    - All write operations require an authenticated user (`request.auth != null`) with a verified email (`request.auth.token.email_verified == true`) or bootstrapped admin privileges (`redwinemegan61@gmail.com` with `email_verified == true`).
 3. **Strict Schema & Volumetric Boundaries**:

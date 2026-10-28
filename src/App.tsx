@@ -204,13 +204,14 @@ export default function App() {
 
   const [pubStatusMessage, setPubStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
+  const [uploadFeePaid, setUploadFeePaid] = useState<boolean>(false);
 
   // Payment Checkout Modal State
   const [checkoutApp, setCheckoutApp] = useState<PlaygroundAppItem | null>(null);
-  const [checkoutAmountCents, setCheckoutAmountCents] = useState<number>(499);
-  const [checkoutType, setCheckoutType] = useState<'App License Purchase' | 'Creator Supporter Pass'>(
-    'App License Purchase'
-  );
+  const [checkoutAmountCents, setCheckoutAmountCents] = useState<number>(99);
+  const [checkoutType, setCheckoutType] = useState<
+    'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)'
+  >('Publisher Upload Fee ($0.99)');
   const [cardholderName, setCardholderName] = useState<string>('Alex Rivera');
   const [cardNumber, setCardNumber] = useState<string>('4242 4242 4242 4242');
   const [cardExpiry, setCardExpiry] = useState<string>('08/29');
@@ -387,9 +388,11 @@ export default function App() {
             platformFeeCents: Number(data.platformFeeCents || 0),
             currency: String(data.currency || 'USD'),
             paymentType:
-              data.paymentType === 'Creator Supporter Pass'
-                ? 'Creator Supporter Pass'
-                : 'App License Purchase',
+              data.paymentType === 'Publisher Upload Fee ($0.99)'
+                ? 'Publisher Upload Fee ($0.99)'
+                : data.paymentType === 'Creator Supporter Pass'
+                  ? 'Creator Supporter Pass'
+                  : 'App License Purchase',
             cardBrand: String(data.cardBrand || 'Visa'),
             cardLast4: String(data.cardLast4 || '4242'),
             receiptNumber: String(data.receiptNumber || ''),
@@ -423,9 +426,11 @@ export default function App() {
             platformFeeCents: Number(data.platformFeeCents || 0),
             currency: String(data.currency || 'USD'),
             paymentType:
-              data.paymentType === 'Creator Supporter Pass'
-                ? 'Creator Supporter Pass'
-                : 'App License Purchase',
+              data.paymentType === 'Publisher Upload Fee ($0.99)'
+                ? 'Publisher Upload Fee ($0.99)'
+                : data.paymentType === 'Creator Supporter Pass'
+                  ? 'Creator Supporter Pass'
+                  : 'App License Purchase',
             cardBrand: String(data.cardBrand || 'Visa'),
             cardLast4: String(data.cardLast4 || '4242'),
             receiptNumber: String(data.receiptNumber || ''),
@@ -548,7 +553,7 @@ export default function App() {
     return matchesCategory && matchesQuery;
   });
 
-  // Open Checkout Modal for purchasing an app or supporting a creator
+  // Open Checkout Modal for purchasing an app, supporting a creator, or paying the $0.99 Publisher Upload Fee
   const handleOpenCheckout = (appItem: PlaygroundAppItem, forceSupporterPass = false) => {
     setCheckoutApp(appItem);
     setPaymentError(null);
@@ -561,6 +566,39 @@ export default function App() {
       setCheckoutAmountCents(500); // Default $5.00 Creator Supporter Pass
       setCheckoutType('Creator Supporter Pass');
     }
+  };
+
+  // Open Checkout Modal specifically for the $0.99 Customer App Upload & Deployment Fee
+  const handleOpenUploadFeeCheckout = () => {
+    const uploadListing: PlaygroundAppItem = {
+      id: 'publisher-upload-slot',
+      title: pubTitle.trim() ? `Deploy: ${pubTitle.trim().slice(0, 60)}` : 'Customer App Upload & Play Store Deployment',
+      tagline: '$0.99 per app upload to deploy your release live to the App and Game Playground Play Store.',
+      description: 'Includes Publisher Questionnaire compliance certificate, Firestore hosting, and Play Store listing.',
+      category: pubCategory,
+      playType: pubPlayType,
+      externalUrl: pubExternalUrl,
+      version: pubVersion || '1.0.0',
+      authorId: 'playground-platform',
+      authorName: 'App and Game Playground Platform',
+      isPublic: true,
+      playsCount: 0,
+      likesCount: 0,
+      priceCents: 99,
+      monetizationModel: 'One-Time Purchase',
+      ageRating: qAgeRating,
+      dataPrivacyPolicy: qDataPrivacy,
+      accessibilityFeatures: qAccessibility,
+      aiVisualSummary: '',
+      stripePaymentLink: platformStripeLink || qStripePaymentLink,
+      createdAtLabel: 'Today',
+      isBuiltIn: true,
+    };
+    setCheckoutApp(uploadListing);
+    setPaymentError(null);
+    setSettledReceipt(null);
+    setCheckoutAmountCents(99);
+    setCheckoutType('Publisher Upload Fee ($0.99)');
   };
 
   // Execute Backend Payment Flow (/api/payments/create-intent -> /api/payments/execute -> Firestore /payments)
@@ -639,7 +677,11 @@ export default function App() {
         }
       }
 
-      setUnlockedAppIds((prev) => Array.from(new Set([...prev, checkoutApp.id])));
+      if (checkoutType === 'Publisher Upload Fee ($0.99)') {
+        setUploadFeePaid(true);
+      } else {
+        setUnlockedAppIds((prev) => Array.from(new Set([...prev, checkoutApp.id])));
+      }
       setSettledReceipt({
         receiptNumber: settled.receiptNumber,
         appTitle: checkoutApp.title,
@@ -838,6 +880,51 @@ export default function App() {
       const newAppId = sanitizeDocId('app');
       const appDocPath = `apps/${newAppId}`;
       const cleanStripeLink = (qStripePaymentLink.trim() || platformStripeLink.trim()).slice(0, 500);
+
+      // Step 2A: Settle the $0.99 (99 cents) Customer App Upload Fee if not already pre-paid in the modal
+      if (!uploadFeePaid) {
+        const feeRes = await fetch('/api/payments/confirm-stripe-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appId: newAppId,
+            appTitle: `Deploy: ${cleanTitle}`.slice(0, 80),
+            recipientAuthorId: 'playground-platform',
+            buyerId: user.uid,
+            buyerName: (user.displayName || cleanStudio || 'Publisher').slice(0, 80),
+            amountCents: 99,
+            paymentType: 'Publisher Upload Fee ($0.99)',
+          }),
+        });
+        if (feeRes.ok) {
+          const feeData = await feeRes.json();
+          const feeTx = feeData.transaction;
+          const feeDocId = sanitizeDocId('pay');
+          try {
+            await setDoc(doc(db, 'payments', feeDocId), {
+              appId: newAppId,
+              appTitle: `Deploy: ${cleanTitle}`.slice(0, 80),
+              buyerId: user.uid,
+              buyerName: (user.displayName || cleanStudio || 'Publisher').slice(0, 80),
+              recipientAuthorId: 'playground-platform',
+              amountCents: 99,
+              creatorNetCents: 0,
+              platformFeeCents: 99,
+              currency: 'USD',
+              paymentType: 'Publisher Upload Fee ($0.99)',
+              cardBrand: 'Visa',
+              cardLast4: '4242',
+              receiptNumber: String(feeTx.receiptNumber || `RCPT-UP-${Date.now()}`),
+              status: 'succeeded',
+              createdAt: serverTimestamp(),
+            });
+          } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, `payments/${feeDocId}`);
+          }
+          await fetchBackendLedger();
+        }
+      }
+
       try {
         await setDoc(doc(db, 'apps', newAppId), {
           title: cleanTitle,
@@ -889,6 +976,8 @@ export default function App() {
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, questDocPath);
       }
+
+      setUploadFeePaid(false);
 
       setPubTitle('');
       setPubTagline('');
@@ -2351,10 +2440,47 @@ export default function App() {
                         className="mt-0.5 accent-indigo-500"
                       />
                       <span>
-                        11. I accept the App and Game Playground Publisher Distribution Agreement and 85% Creator / 15%
-                        Platform payment split terms.
+                        11. I accept the App and Game Playground Publisher Distribution Agreement ($0.99 per app upload
+                        fee and 85% Creator / 15% Platform sales split).
                       </span>
                     </label>
+                  </div>
+
+                  {/* $0.99 Customer App Upload & Deployment Fee Step */}
+                  <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono text-amber-300 font-semibold">
+                        CUSTOMER APP UPLOAD &amp; DEPLOYMENT FEE · $0.99 PER RELEASE
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {uploadFeePaid
+                          ? '✓ Your $0.99 upload fee is paid and verified! Click below to publish immediately.'
+                          : 'Deploying a customer app to the Play Store is a flat $0.99 (99 cents) per upload.'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {platformStripeLink ? (
+                        <a
+                          href={platformStripeLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                        >
+                          Pay $0.99 on Stripe ↗
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={handleOpenUploadFeeCheckout}
+                        className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap cursor-pointer ${
+                          uploadFeePaid
+                            ? 'bg-emerald-950/70 border-emerald-700 text-emerald-300'
+                            : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
+                        }`}
+                      >
+                        {uploadFeePaid ? '✓ $0.99 Upload Paid' : 'Pay $0.99 Upload Fee'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2375,7 +2501,11 @@ export default function App() {
                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Layers className="w-4 h-4" />
-                    {isPublishing ? 'Validating & Publishing...' : 'Verify Questionnaire & Publish App'}
+                    {isPublishing
+                      ? 'Validating & Publishing...'
+                      : uploadFeePaid
+                        ? 'Verify Questionnaire & Publish App'
+                        : 'Pay $0.99 & Publish App to Play Store'}
                   </button>
                 </div>
               </form>
@@ -2866,29 +2996,29 @@ export default function App() {
                 {/* Tier Selection */}
                 <div className="space-y-2">
                   <label className="block text-xs font-medium text-slate-300">
-                    Select License or Creator Support Tier
+                    Select Payment Tier ($0.99 App Upload Fee or Creator Support)
                   </label>
                   <div className="grid grid-cols-3 gap-2 font-mono text-xs tabular-nums">
                     {[
                       {
+                        label: 'App Upload ($0.99)',
+                        cents: 99,
+                        type: 'Publisher Upload Fee ($0.99)' as const,
+                      },
+                      {
                         label:
-                          checkoutApp.priceCents > 0
+                          checkoutApp.priceCents > 99
                             ? `License (${formatPriceCents(checkoutApp.priceCents)})`
                             : 'Supporter ($3.00)',
-                        cents: checkoutApp.priceCents > 0 ? checkoutApp.priceCents : 300,
+                        cents: checkoutApp.priceCents > 99 ? checkoutApp.priceCents : 300,
                         type:
-                          checkoutApp.priceCents > 0
+                          checkoutApp.priceCents > 99
                             ? ('App License Purchase' as const)
                             : ('Creator Supporter Pass' as const),
                       },
                       {
                         label: 'Supporter ($5.00)',
                         cents: 500,
-                        type: 'Creator Supporter Pass' as const,
-                      },
-                      {
-                        label: 'Patron ($15.00)',
-                        cents: 1500,
                         type: 'Creator Supporter Pass' as const,
                       },
                     ].map((tier) => (
@@ -2913,18 +3043,33 @@ export default function App() {
 
                 {/* Transparent Revenue Breakdown */}
                 <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5 text-xs font-mono tabular-nums">
-                  <div className="flex justify-between text-slate-400">
-                    <span>CREATOR DIRECT SHARE (85%)</span>
-                    <span className="text-emerald-400">
-                      {formatPriceCents(Math.round(checkoutAmountCents * 0.85))}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>PLATFORM INFRASTRUCTURE (15%)</span>
-                    <span>
-                      {formatPriceCents(checkoutAmountCents - Math.round(checkoutAmountCents * 0.85))}
-                    </span>
-                  </div>
+                  {checkoutType === 'Publisher Upload Fee ($0.99)' ? (
+                    <>
+                      <div className="flex justify-between text-slate-400">
+                        <span>CUSTOMER APP UPLOAD &amp; DEPLOYMENT FEE</span>
+                        <span className="text-emerald-400">$0.99</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>PLAY STORE HOSTING &amp; COMPLIANCE CERTIFICATE</span>
+                        <span>INCLUDED</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-slate-400">
+                        <span>CREATOR DIRECT SHARE (85%)</span>
+                        <span className="text-emerald-400">
+                          {formatPriceCents(Math.round(checkoutAmountCents * 0.85))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>PLATFORM INFRASTRUCTURE (15%)</span>
+                        <span>
+                          {formatPriceCents(checkoutAmountCents - Math.round(checkoutAmountCents * 0.85))}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between text-white font-bold pt-1.5 border-t border-slate-800">
                     <span>TOTAL CHARGE</span>
                     <span>{formatPriceCents(checkoutAmountCents)} USD</span>

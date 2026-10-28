@@ -86,7 +86,7 @@ export interface PaymentRecordItem {
   creatorNetCents: number;
   platformFeeCents: number;
   currency: string;
-  paymentType: 'App License Purchase' | 'Creator Supporter Pass';
+  paymentType: 'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)';
   cardBrand: string;
   cardLast4: string;
   receiptNumber: string;

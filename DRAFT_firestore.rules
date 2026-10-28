@@ -157,13 +157,13 @@ service cloud.firestore {
       data.buyerName is string && data.buyerName.size() >= 1 && data.buyerName.size() <= 80 &&
       data.recipientAuthorId is string && data.recipientAuthorId.size() >= 1 && data.recipientAuthorId.size() <= 128 &&
       data.recipientAuthorId.matches('^[a-zA-Z0-9_\\-]+$') &&
-      data.amountCents is int && data.amountCents >= 100 && data.amountCents <= 99999 &&
+      data.amountCents is int && data.amountCents >= 99 && data.amountCents <= 99999 &&
       data.creatorNetCents is int && data.creatorNetCents >= 0 &&
       data.platformFeeCents is int && data.platformFeeCents >= 0 &&
       data.creatorNetCents + data.platformFeeCents == data.amountCents &&
       data.currency is string && data.currency.size() <= 8 && data.currency == 'USD' &&
       data.paymentType is string && data.paymentType.size() <= 32 &&
-      data.paymentType in ['App License Purchase', 'Creator Supporter Pass'] &&
+      data.paymentType in ['App License Purchase', 'Creator Supporter Pass', 'Publisher Upload Fee ($0.99)'] &&
       data.cardBrand is string && data.cardBrand.size() >= 2 && data.cardBrand.size() <= 24 &&
       data.cardLast4 is string && data.cardLast4.size() == 4 && data.cardLast4.matches('^[0-9]{4}$') &&
       data.receiptNumber is string && data.receiptNumber.size() >= 6 && data.receiptNumber.size() <= 64 &&

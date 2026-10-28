@@ -325,7 +325,7 @@
         },
         "amountCents": {
           "type": "integer",
-          "description": "Total amount charged in USD cents (100 to 99999)."
+          "description": "Total amount charged in USD cents (99 to 99999, where 99 cents = $0.99 app upload fee)."
         },
         "creatorNetCents": {
           "type": "integer",
@@ -333,7 +333,7 @@
         },
         "platformFeeCents": {
           "type": "integer",
-          "description": "15% platform fee in USD cents."
+          "description": "Platform fee in USD cents (100% of $0.99 upload fee or 15% of app sales)."
         },
         "currency": {
           "type": "string",
@@ -342,7 +342,7 @@
         },
         "paymentType": {
           "type": "string",
-          "enum": ["App License Purchase", "Creator Supporter Pass"],
+          "enum": ["App License Purchase", "Creator Supporter Pass", "Publisher Upload Fee ($0.99)"],
           "maxLength": 32
         },
         "cardBrand": {
