@@ -134,13 +134,20 @@ app.post('/api/payments/confirm-stripe-link', (req, res) => {
 });
 
 // 1. POST /api/publisher/validate-questionnaire
-// Evaluates the publisher's onboarding & compliance questionnaire before publishing an app/game
+// Evaluates the publisher's Google Play–style content rating & safety questionnaire before submitting for owner review
 app.post('/api/publisher/validate-questionnaire', (req, res) => {
   try {
     const {
       studioName,
       ageRating,
       contentAdvisory,
+      violenceLevel = 'None',
+      fearLevel = 'None',
+      languageLevel = 'None',
+      substancesLevel = 'None',
+      gamblingThemes = 'None',
+      userInteraction = 'No User-to-User Interaction',
+      generalSafetyStandards = true,
       dataPrivacyPolicy,
       accessibilityFeatures,
       monetizationModel,
@@ -156,6 +163,14 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
       return;
     }
 
+    if (!generalSafetyStandards) {
+      res.status(400).json({
+        error:
+          'You must attest that your application meets General Safety Standards (no malware, non-consensual content, or deceptive behavior).',
+      });
+      return;
+    }
+
     if (!testedOfflineAndSandbox || !acceptedPublisherTerms) {
       res.status(400).json({
         error: 'You must confirm browser sandbox testing and accept the Publisher Terms & Distribution Agreement.',
@@ -168,7 +183,21 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
       return;
     }
 
-    // Check consistency between Age Rating and Content Advisory
+    // Check consistency between Age Rating and Google Play Content Rating disclosures
+    const isMatureContent =
+      violenceLevel === 'Realistic or Intense Violence' ||
+      fearLevel === 'Intense Horror / Graphic Trauma' ||
+      languageLevel === 'Explicit / Frequent Profanity' ||
+      substancesLevel === 'Depicts Drug / Alcohol Use';
+
+    if (isMatureContent && ageRating !== 'Mature 17+ (M)') {
+      res.status(400).json({
+        error:
+          'Google Play Rating Mismatch: Apps disclosing Realistic/Intense Violence, Intense Horror/Gore, Explicit Profanity, or Drug/Alcohol Use must be rated "Mature 17+ (M)".',
+      });
+      return;
+    }
+
     if (ageRating === 'Everyone (E)' && contentAdvisory === 'Moderate') {
       res.status(400).json({
         error:
@@ -194,10 +223,18 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
       verified: true,
       complianceCertificateId,
       uploadDeploymentFeeCents: 99,
+      reviewStatus: 'pending',
       summary: {
         studioName: String(studioName).trim(),
         ageRating,
         contentAdvisory,
+        violenceLevel,
+        fearLevel,
+        languageLevel,
+        substancesLevel,
+        gamblingThemes,
+        userInteraction,
+        generalSafetyStandards: Boolean(generalSafetyStandards),
         dataPrivacyPolicy,
         accessibilityFeatures,
         monetizationModel,

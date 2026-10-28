@@ -58,6 +58,13 @@ import {
   MonetizationModel,
   AgeRating,
   ContentAdvisory,
+  ViolenceLevel,
+  FearLevel,
+  LanguageLevel,
+  SubstancesLevel,
+  GamblingThemes,
+  UserInteractionLevel,
+  ReviewStatus,
   DataPrivacyPolicy,
   AccessibilityFeatureSet,
   PayoutMethod,
@@ -65,6 +72,7 @@ import {
   PaymentRecordItem,
   PublisherQuestionnaireItem,
   GeminiImageAnalysisResult,
+  calculateGooglePlayRating,
   createSampleDiagnosticImage,
   formatPriceCents,
   getSupporterPerksForApp,
@@ -73,6 +81,8 @@ import { ArtworkCover } from './components/ArtworkCover';
 import { PlayableStage } from './components/PlayableExperiences';
 
 type ActiveSection = 'discover' | 'stage' | 'vision' | 'publish' | 'payments';
+
+const OWNER_ADMIN_EMAIL = 'redwinemegan61@gmail.com';
 
 const CATEGORIES: Array<'All' | AppCategory | 'My Published'> = [
   'All',
@@ -129,12 +139,18 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
 
+  const isOwnerAdmin = Boolean(
+    user?.email && user.email.toLowerCase() === OWNER_ADMIN_EMAIL && user.emailVerified
+  );
+
   // Navigation & Active Stage State
   const [activeSection, setActiveSection] = useState<ActiveSection>('discover');
   const [selectedAppId, setSelectedAppId] = useState<string>(BUILT_IN_APPS[0].id);
 
   // Firestore Published Apps & Reviews
   const [communityApps, setCommunityApps] = useState<PlaygroundAppItem[]>([]);
+  const [mySubmittedApps, setMySubmittedApps] = useState<PlaygroundAppItem[]>([]);
+  const [adminAllApps, setAdminAllApps] = useState<PlaygroundAppItem[]>([]);
   const [loadingApps, setLoadingApps] = useState<boolean>(true);
   const [reviews, setReviews] = useState<AppReviewItem[]>([]);
   const [reviewRating, setReviewRating] = useState<number>(5);
@@ -145,6 +161,9 @@ export default function App() {
   const [userPayments, setUserPayments] = useState<PaymentRecordItem[]>([]);
   const [creatorSales, setCreatorSales] = useState<PaymentRecordItem[]>([]);
   const [myQuestionnaires, setMyQuestionnaires] = useState<PublisherQuestionnaireItem[]>([]);
+  const [adminQuestionnaires, setAdminQuestionnaires] = useState<PublisherQuestionnaireItem[]>([]);
+  const [adminNotesMap, setAdminNotesMap] = useState<Record<string, string>>({});
+  const [reviewActionStatus, setReviewActionStatus] = useState<string | null>(null);
   const [unlockedAppIds, setUnlockedAppIds] = useState<string[]>([]);
   const [backendLedger, setBackendLedger] = useState<BackendLedgerSummary | null>(null);
 
@@ -162,8 +181,15 @@ export default function App() {
   const [pubVersion, setPubVersion] = useState<string>('1.0.0');
   const [pubAiSummary, setPubAiSummary] = useState<string>('');
 
-  // Publisher Questionnaire Fields
+  // Publisher Questionnaire Fields (Google Play Store–style Content Rating & Safety)
   const [qStudioName, setQStudioName] = useState<string>('');
+  const [qViolenceLevel, setQViolenceLevel] = useState<ViolenceLevel>('None');
+  const [qFearLevel, setQFearLevel] = useState<FearLevel>('None');
+  const [qLanguageLevel, setQLanguageLevel] = useState<LanguageLevel>('None');
+  const [qSubstancesLevel, setQSubstancesLevel] = useState<SubstancesLevel>('None');
+  const [qGamblingThemes, setQGamblingThemes] = useState<GamblingThemes>('None');
+  const [qUserInteraction, setQUserInteraction] = useState<UserInteractionLevel>('No User-to-User Interaction');
+  const [qGeneralSafetyStandards, setQGeneralSafetyStandards] = useState<boolean>(true);
   const [qAgeRating, setQAgeRating] = useState<AgeRating>('Everyone (E)');
   const [qContentAdvisory, setQContentAdvisory] = useState<ContentAdvisory>('None');
   const [qDataPrivacy, setQDataPrivacy] = useState<DataPrivacyPolicy>('Zero Data Collected');
@@ -196,7 +222,7 @@ export default function App() {
   });
   const [stripeSaveNotice, setStripeSaveNotice] = useState<string | null>(null);
   const [copiedLiveUrl, setCopiedLiveUrl] = useState<boolean>(false);
-  const [qSupportContact, setQSupportContact] = useState<string>('support@playground-creator.dev');
+  const [qSupportContact, setQSupportContact] = useState<string>('');
   const [qTestedSandbox, setQTestedSandbox] = useState<boolean>(true);
   const [qAcceptedTerms, setQAcceptedTerms] = useState<boolean>(true);
   const [verifiedCertId, setVerifiedCertId] = useState<string | null>(null);
@@ -206,16 +232,43 @@ export default function App() {
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
   const [uploadFeePaid, setUploadFeePaid] = useState<boolean>(false);
 
-  // Payment Checkout Modal State
+  // Automatically sync Google Play Age Rating & Content Advisory when content rating disclosures change
+  useEffect(() => {
+    const calculatedRating = calculateGooglePlayRating({
+      violenceLevel: qViolenceLevel,
+      fearLevel: qFearLevel,
+      languageLevel: qLanguageLevel,
+      substancesLevel: qSubstancesLevel,
+      gamblingThemes: qGamblingThemes,
+      userInteraction: qUserInteraction,
+    });
+    setQAgeRating(calculatedRating);
+
+    if (
+      qViolenceLevel === 'Realistic or Intense Violence' ||
+      qFearLevel === 'Intense Horror / Graphic Trauma'
+    ) {
+      setQContentAdvisory('Moderate');
+    } else if (
+      qViolenceLevel === 'Cartoon or Fantasy Violence' ||
+      qFearLevel === 'Mild Suspense / Spooky Themes'
+    ) {
+      setQContentAdvisory('Mild Cartoon / Tactical');
+    } else {
+      setQContentAdvisory('None');
+    }
+  }, [qViolenceLevel, qFearLevel, qLanguageLevel, qSubstancesLevel, qGamblingThemes, qUserInteraction]);
+
+  // Payment Checkout Modal State (No hardcoded customer names)
   const [checkoutApp, setCheckoutApp] = useState<PlaygroundAppItem | null>(null);
   const [checkoutAmountCents, setCheckoutAmountCents] = useState<number>(99);
   const [checkoutType, setCheckoutType] = useState<
     'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)'
   >('Publisher Upload Fee ($0.99)');
-  const [cardholderName, setCardholderName] = useState<string>('Alex Rivera');
-  const [cardNumber, setCardNumber] = useState<string>('4242 4242 4242 4242');
-  const [cardExpiry, setCardExpiry] = useState<string>('08/29');
-  const [cardCvc, setCardCvc] = useState<string>('842');
+  const [cardholderName, setCardholderName] = useState<string>('');
+  const [cardNumber, setCardNumber] = useState<string>('');
+  const [cardExpiry, setCardExpiry] = useState<string>('');
+  const [cardCvc, setCardCvc] = useState<string>('');
   const [processingPayment, setProcessingPayment] = useState<boolean>(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [settledReceipt, setSettledReceipt] = useState<{
@@ -304,17 +357,84 @@ export default function App() {
       setUser(currentUser);
       if (currentUser?.displayName) {
         setQStudioName((prev) => prev || `${currentUser.displayName} Studio`);
-        setCardholderName(currentUser.displayName);
+        setCardholderName((prev) => prev || currentUser.displayName || '');
       }
       if (currentUser?.email) {
-        setQSupportContact(currentUser.email);
+        setQSupportContact((prev) => prev || currentUser.email || '');
       }
       setAuthReady(true);
     });
     return () => unsub();
   }, []);
 
-  // 2. Subscribe to public apps in Firestore (`where('isPublic', '==', true)`)
+  // Helper to map Firestore document data to PlaygroundAppItem
+  const mapDocToAppItem = useCallback((docId: string, data: Record<string, unknown>): PlaygroundAppItem => {
+    return {
+      id: docId,
+      title: String(data.title || 'Untitled App'),
+      tagline: String(data.tagline || ''),
+      description: String(data.description || ''),
+      category: (data.category as AppCategory) || 'Game',
+      playType: (data.playType as PlayableEngineType) || 'starlight-tactics',
+      externalUrl: String(data.externalUrl || ''),
+      version: String(data.version || '1.0.0'),
+      authorId: String(data.authorId || ''),
+      authorName: String(data.authorName || 'Creator'),
+      isPublic: Boolean(data.isPublic),
+      playsCount: Number(data.playsCount || 0),
+      likesCount: Number(data.likesCount || 0),
+      priceCents: Number(data.priceCents || 0),
+      monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
+      ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
+      dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
+      accessibilityFeatures:
+        (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
+      aiVisualSummary: String(data.aiVisualSummary || ''),
+      stripePaymentLink: String(data.stripePaymentLink || ''),
+      reviewStatus: (data.reviewStatus as ReviewStatus) || (data.isPublic ? 'approved' : 'pending'),
+      adminReviewNotes: String(data.adminReviewNotes || ''),
+      createdAtLabel: formatFirestoreDate(data.createdAt),
+      isBuiltIn: false,
+    };
+  }, []);
+
+  // Helper to map Firestore document data to PublisherQuestionnaireItem
+  const mapDocToQuestionnaire = useCallback(
+    (docId: string, data: Record<string, unknown>): PublisherQuestionnaireItem => {
+      return {
+        id: docId,
+        appId: String(data.appId || ''),
+        authorId: String(data.authorId || ''),
+        studioName: String(data.studioName || ''),
+        ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
+        contentAdvisory: (data.contentAdvisory as ContentAdvisory) || 'None',
+        violenceLevel: (data.violenceLevel as ViolenceLevel) || 'None',
+        fearLevel: (data.fearLevel as FearLevel) || 'None',
+        languageLevel: (data.languageLevel as LanguageLevel) || 'None',
+        substancesLevel: (data.substancesLevel as SubstancesLevel) || 'None',
+        gamblingThemes: (data.gamblingThemes as GamblingThemes) || 'None',
+        userInteraction:
+          (data.userInteraction as UserInteractionLevel) || 'No User-to-User Interaction',
+        generalSafetyStandards:
+          data.generalSafetyStandards !== undefined ? Boolean(data.generalSafetyStandards) : true,
+        dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
+        accessibilityFeatures:
+          (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
+        monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
+        payoutMethod:
+          (data.payoutMethod as PayoutMethod) ||
+          'Stripe Connect Express (85% Creator / 15% Platform)',
+        supportContact: String(data.supportContact || ''),
+        complianceCertificateId: String(data.complianceCertificateId || ''),
+        reviewStatus: (data.reviewStatus as ReviewStatus) || 'pending',
+        adminReviewNotes: String(data.adminReviewNotes || ''),
+        createdAtLabel: formatFirestoreDate(data.createdAt),
+      };
+    },
+    []
+  );
+
+  // 2. Subscribe to public approved apps in Firestore (`where('isPublic', '==', true)`)
   useEffect(() => {
     if (!authReady) return;
     const appsPath = 'apps';
@@ -322,34 +442,9 @@ export default function App() {
     const unsub = onSnapshot(
       q,
       (snapshot) => {
-        const items: PlaygroundAppItem[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          return {
-            id: docSnap.id,
-            title: String(data.title || 'Untitled App'),
-            tagline: String(data.tagline || ''),
-            description: String(data.description || ''),
-            category: (data.category as AppCategory) || 'Game',
-            playType: (data.playType as PlayableEngineType) || 'starlight-tactics',
-            externalUrl: String(data.externalUrl || ''),
-            version: String(data.version || '1.0.0'),
-            authorId: String(data.authorId || ''),
-            authorName: String(data.authorName || 'Creator'),
-            isPublic: Boolean(data.isPublic),
-            playsCount: Number(data.playsCount || 0),
-            likesCount: Number(data.likesCount || 0),
-            priceCents: Number(data.priceCents || 0),
-            monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
-            ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
-            dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
-            accessibilityFeatures:
-              (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
-            aiVisualSummary: String(data.aiVisualSummary || ''),
-            stripePaymentLink: String(data.stripePaymentLink || ''),
-            createdAtLabel: formatFirestoreDate(data.createdAt),
-            isBuiltIn: false,
-          };
-        });
+        const items: PlaygroundAppItem[] = snapshot.docs.map((docSnap) =>
+          mapDocToAppItem(docSnap.id, docSnap.data())
+        );
         setCommunityApps(items);
         setLoadingApps(false);
       },
@@ -359,16 +454,31 @@ export default function App() {
       }
     );
     return () => unsub();
-  }, [authReady]);
+  }, [authReady, mapDocToAppItem]);
 
-  // 3. Subscribe to signed-in user's payments (as buyer & creator) and publisher questionnaires
+  // 3. Subscribe to signed-in user's own submitted apps, payments, and questionnaires
+  //    AND if signed in as Owner/Admin (redwinemegan61@gmail.com), subscribe to ALL apps & questionnaires for review
   useEffect(() => {
     if (!authReady || !user) {
+      setMySubmittedApps([]);
+      setAdminAllApps([]);
       setUserPayments([]);
       setCreatorSales([]);
       setMyQuestionnaires([]);
+      setAdminQuestionnaires([]);
       return;
     }
+
+    const myAppsQuery = query(collection(db, 'apps'), where('authorId', '==', user.uid));
+    const unsubMyApps = onSnapshot(
+      myAppsQuery,
+      (snapshot) => {
+        setMySubmittedApps(snapshot.docs.map((d) => mapDocToAppItem(d.id, d.data())));
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'apps');
+      }
+    );
 
     const buyerQuery = query(collection(db, 'payments'), where('buyerId', '==', user.uid));
     const unsubBuyer = onSnapshot(
@@ -449,43 +559,63 @@ export default function App() {
     const unsubQuest = onSnapshot(
       questQuery,
       (snapshot) => {
-        const items: PublisherQuestionnaireItem[] = snapshot.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            appId: String(data.appId || ''),
-            authorId: String(data.authorId || ''),
-            studioName: String(data.studioName || ''),
-            ageRating: (data.ageRating as AgeRating) || 'Everyone (E)',
-            contentAdvisory: (data.contentAdvisory as ContentAdvisory) || 'None',
-            dataPrivacyPolicy: (data.dataPrivacyPolicy as DataPrivacyPolicy) || 'Zero Data Collected',
-            accessibilityFeatures:
-              (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
-            monetizationModel: (data.monetizationModel as MonetizationModel) || 'Free to Play',
-            payoutMethod:
-              (data.payoutMethod as PayoutMethod) ||
-              'Stripe Connect Express (85% Creator / 15% Platform)',
-            supportContact: String(data.supportContact || ''),
-            complianceCertificateId: String(data.complianceCertificateId || ''),
-            createdAtLabel: formatFirestoreDate(data.createdAt),
-          };
-        });
-        setMyQuestionnaires(items);
+        setMyQuestionnaires(snapshot.docs.map((d) => mapDocToQuestionnaire(d.id, d.data())));
       },
       (err) => {
         handleFirestoreError(err, OperationType.LIST, 'publisherQuestionnaires');
       }
     );
 
+    let unsubAdminApps: (() => void) | null = null;
+    let unsubAdminQuests: (() => void) | null = null;
+
+    if (isOwnerAdmin) {
+      unsubAdminApps = onSnapshot(
+        collection(db, 'apps'),
+        (snapshot) => {
+          setAdminAllApps(snapshot.docs.map((d) => mapDocToAppItem(d.id, d.data())));
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'apps');
+        }
+      );
+
+      unsubAdminQuests = onSnapshot(
+        collection(db, 'publisherQuestionnaires'),
+        (snapshot) => {
+          setAdminQuestionnaires(snapshot.docs.map((d) => mapDocToQuestionnaire(d.id, d.data())));
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'publisherQuestionnaires');
+        }
+      );
+    }
+
     return () => {
+      unsubMyApps();
       unsubBuyer();
       unsubSeller();
       unsubQuest();
+      if (unsubAdminApps) unsubAdminApps();
+      if (unsubAdminQuests) unsubAdminQuests();
     };
-  }, [authReady, user]);
+  }, [authReady, user, isOwnerAdmin, mapDocToAppItem, mapDocToQuestionnaire]);
 
-  // Combine Built-In Flagship Apps + Community Published Apps
-  const allApps: PlaygroundAppItem[] = [...communityApps, ...BUILT_IN_APPS];
+  // Combine Public Approved Community Apps + User's Own Submitted Apps + Built-In Sandbox Templates
+  const mergedCommunityAppsMap = new Map<string, PlaygroundAppItem>();
+  communityApps.forEach((a) => mergedCommunityAppsMap.set(a.id, a));
+  mySubmittedApps.forEach((a) => mergedCommunityAppsMap.set(a.id, a));
+  if (isOwnerAdmin) {
+    adminAllApps.forEach((a) => mergedCommunityAppsMap.set(a.id, a));
+  }
+
+  const allPublicAndVisibleApps: PlaygroundAppItem[] = [
+    ...Array.from(mergedCommunityAppsMap.values()).filter(
+      (a) => a.isPublic || (user && a.authorId === user.uid) || isOwnerAdmin
+    ),
+    ...BUILT_IN_APPS,
+  ];
+  const allApps = allPublicAndVisibleApps;
   const selectedApp = allApps.find((a) => a.id === selectedAppId) || allApps[0];
 
   // 4. Subscribe to reviews for currently selected community app
@@ -533,8 +663,12 @@ export default function App() {
     setVisionPrompt(sample.defaultPrompt);
   }, []);
 
-  // Filter catalog apps
+  // Filter catalog apps (public catalog only shows approved public apps, unless viewing 'My Published')
   const filteredApps = allApps.filter((item) => {
+    if (selectedCategory !== 'My Published' && !item.isBuiltIn && !item.isPublic) {
+      return false;
+    }
+
     const matchesCategory =
       selectedCategory === 'All'
         ? true
@@ -754,6 +888,51 @@ export default function App() {
     }
   };
 
+  // Owner-Only Review & Approval Handler (Restricted Exclusively to redwinemegan61@gmail.com)
+  const handleOwnerReviewDecision = async (
+    quest: PublisherQuestionnaireItem,
+    decision: 'approved' | 'denied'
+  ) => {
+    if (!isOwnerAdmin) {
+      setReviewActionStatus('Access denied: Only platform owner redwinemegan61@gmail.com can approve or deny releases.');
+      return;
+    }
+
+    setReviewActionStatus(null);
+    const notes = (
+      adminNotesMap[quest.id] ||
+      (decision === 'approved'
+        ? 'Approved by Platform Owner (redwinemegan61@gmail.com) after Google Play safety & content rating review.'
+        : 'Denied by Platform Owner (redwinemegan61@gmail.com) during safety & content rating review.')
+    ).slice(0, 500);
+
+    try {
+      await updateDoc(doc(db, 'apps', quest.appId), {
+        isPublic: decision === 'approved',
+        reviewStatus: decision,
+        adminReviewNotes: notes,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `apps/${quest.appId}`);
+    }
+
+    try {
+      await updateDoc(doc(db, 'publisherQuestionnaires', quest.id), {
+        reviewStatus: decision,
+        adminReviewNotes: notes,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `publisherQuestionnaires/${quest.id}`);
+    }
+
+    setReviewActionStatus(
+      decision === 'approved'
+        ? `Approved "${quest.studioName}" (${quest.complianceCertificateId}) — now live in the public Play Store!`
+        : `Denied submission (${quest.complianceCertificateId}) — kept hidden from the public Play Store.`
+    );
+  };
+
   // Verify Publisher Questionnaire via Backend Endpoint (/api/publisher/validate-questionnaire)
   const handleVerifyQuestionnaireOnly = async () => {
     setVerifyingQuestionnaire(true);
@@ -772,12 +951,19 @@ export default function App() {
           studioName: qStudioName.trim() || user?.displayName || 'Indie Studio',
           ageRating: qAgeRating,
           contentAdvisory: qContentAdvisory,
+          violenceLevel: qViolenceLevel,
+          fearLevel: qFearLevel,
+          languageLevel: qLanguageLevel,
+          substancesLevel: qSubstancesLevel,
+          gamblingThemes: qGamblingThemes,
+          userInteraction: qUserInteraction,
+          generalSafetyStandards: qGeneralSafetyStandards,
           dataPrivacyPolicy: qDataPrivacy,
           accessibilityFeatures: qAccessibility,
           monetizationModel: qMonetization,
           priceCents: computedPriceCents,
           payoutMethod: qPayoutMethod,
-          supportContact: qSupportContact.trim(),
+          supportContact: qSupportContact.trim() || user?.email || '',
           testedOfflineAndSandbox: qTestedSandbox,
           acceptedPublisherTerms: qAcceptedTerms,
         }),
@@ -791,7 +977,7 @@ export default function App() {
       setVerifiedCertId(data.complianceCertificateId);
       setPubStatusMessage({
         type: 'success',
-        text: `Publisher Questionnaire verified by backend! Compliance Certificate: ${data.complianceCertificateId}`,
+        text: `Google Play Rating & Safety Questionnaire verified! Calculated Rating: ${qAgeRating} · Certificate: ${data.complianceCertificateId}`,
       });
     } catch (err: unknown) {
       setPubStatusMessage({
@@ -811,7 +997,7 @@ export default function App() {
     if (!user) {
       setPubStatusMessage({
         type: 'error',
-        text: 'Please sign in with Google first to complete the Publisher Questionnaire and publish your app.',
+        text: 'Please sign in with Google first to complete the Publisher Questionnaire and submit your app for review.',
       });
       return;
     }
@@ -822,10 +1008,10 @@ export default function App() {
     const cleanVersion = pubVersion.trim().slice(0, 24) || '1.0.0';
     const cleanUrl = pubExternalUrl.trim().slice(0, 500);
     const cleanStudio = (qStudioName.trim() || user.displayName || 'Creator Studio').slice(0, 80);
-    const cleanSupport = qSupportContact.trim().slice(0, 120);
+    const cleanSupport = (qSupportContact.trim() || user.email || '').slice(0, 120);
     const cleanAiSummary =
       pubAiSummary.trim().slice(0, 1000) ||
-      `Verified via Publisher Questionnaire (${qAgeRating} · ${qDataPrivacy} · ${qAccessibility}).`;
+      `Google Play Content Rating Questionnaire (${qAgeRating} · Violence: ${qViolenceLevel} · Fear: ${qFearLevel} · ${qDataPrivacy}).`;
 
     if (cleanTitle.length < 2) {
       setPubStatusMessage({ type: 'error', text: 'Title must be between 2 and 80 characters.' });
@@ -844,7 +1030,7 @@ export default function App() {
     const computedPriceCents =
       qMonetization === 'Free to Play'
         ? 0
-        : Math.max(100, Math.min(99999, Math.round((isNaN(parsedDollars) ? 4.99 : parsedDollars) * 100)));
+        : Math.max(99, Math.min(99999, Math.round((isNaN(parsedDollars) ? 4.99 : parsedDollars) * 100)));
 
     setIsPublishing(true);
 
@@ -857,6 +1043,13 @@ export default function App() {
           studioName: cleanStudio,
           ageRating: qAgeRating,
           contentAdvisory: qContentAdvisory,
+          violenceLevel: qViolenceLevel,
+          fearLevel: qFearLevel,
+          languageLevel: qLanguageLevel,
+          substancesLevel: qSubstancesLevel,
+          gamblingThemes: qGamblingThemes,
+          userInteraction: qUserInteraction,
+          generalSafetyStandards: qGeneralSafetyStandards,
           dataPrivacyPolicy: qDataPrivacy,
           accessibilityFeatures: qAccessibility,
           monetizationModel: qMonetization,
@@ -925,6 +1118,9 @@ export default function App() {
         }
       }
 
+      const initialReviewStatus: ReviewStatus = isOwnerAdmin ? 'approved' : 'pending';
+      const initialIsPublic: boolean = isOwnerAdmin ? true : false;
+
       try {
         await setDoc(doc(db, 'apps', newAppId), {
           title: cleanTitle,
@@ -936,7 +1132,8 @@ export default function App() {
           version: cleanVersion,
           authorId: user.uid,
           authorName: cleanStudio,
-          isPublic: true,
+          isPublic: initialIsPublic,
+          reviewStatus: initialReviewStatus,
           playsCount: 0,
           likesCount: 0,
           priceCents: computedPriceCents,
@@ -963,6 +1160,13 @@ export default function App() {
           studioName: cleanStudio,
           ageRating: qAgeRating,
           contentAdvisory: qContentAdvisory,
+          violenceLevel: qViolenceLevel,
+          fearLevel: qFearLevel,
+          languageLevel: qLanguageLevel,
+          substancesLevel: qSubstancesLevel,
+          gamblingThemes: qGamblingThemes,
+          userInteraction: qUserInteraction,
+          generalSafetyStandards: qGeneralSafetyStandards,
           dataPrivacyPolicy: qDataPrivacy,
           accessibilityFeatures: qAccessibility,
           monetizationModel: qMonetization,
@@ -971,6 +1175,7 @@ export default function App() {
           testedOfflineAndSandbox: qTestedSandbox,
           acceptedPublisherTerms: qAcceptedTerms,
           complianceCertificateId: certId,
+          reviewStatus: initialReviewStatus,
           createdAt: serverTimestamp(),
         });
       } catch (err) {
@@ -986,13 +1191,11 @@ export default function App() {
       setPubAiSummary('');
       setPubStatusMessage({
         type: 'success',
-        text: `Published "${cleanTitle}" with Compliance Certificate ${certId}! Launching in Stage...`,
+        text: isOwnerAdmin
+          ? `Published "${cleanTitle}" (${certId}) directly to the Play Store as Platform Owner!`
+          : `Submitted "${cleanTitle}" (${certId})! Your Google Play safety questionnaire has been routed exclusively to the Platform Owner (${OWNER_ADMIN_EMAIL}) for review and approval.`,
       });
       setSelectedAppId(newAppId);
-      setTimeout(() => {
-        setActiveSection('stage');
-        setPubStatusMessage(null);
-      }, 900);
     } catch (err: unknown) {
       setPubStatusMessage({
         type: 'error',
@@ -1117,8 +1320,9 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const totalPlays = allApps.reduce((acc, item) => acc + item.playsCount, 0);
-  const totalLikes = allApps.reduce((acc, item) => acc + item.likesCount, 0);
+  // Real-only Firestore launch and like counts (never hardcoded)
+  const totalRealPlays = communityApps.reduce((acc, item) => acc + item.playsCount, 0);
+  const pendingAdminReviewsCount = adminQuestionnaires.filter((q) => q.reviewStatus === 'pending').length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0F17] text-[#F8FAFC]">
@@ -1219,16 +1423,24 @@ export default function App() {
           MAIN VIEWPORT CONTAINER (1440px Baseline)
          ===================================================================== */}
       <main className="flex-1 max-w-[1360px] w-full mx-auto px-6 lg:px-10 py-8 space-y-12">
-        {/* Account & Workspace Context Bar */}
+        {/* Account & Workspace Context Bar (100% Real Firestore Numbers Only) */}
         <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-800/80">
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 font-mono tabular-nums">
-            <span>PLAY STORE RELEASES: {allApps.length}</span>
+            <span>APPROVED COMMUNITY RELEASES: {communityApps.length}</span>
             <span aria-hidden="true">·</span>
-            <span>COMMUNITY PUBLISHED: {communityApps.length}</span>
+            <span>
+              FIRESTORE LAUNCHES: {totalRealPlays > 0 ? totalRealPlays.toLocaleString() : '0 (No launches yet)'}
+            </span>
             <span aria-hidden="true">·</span>
-            <span>LAUNCHES: {totalPlays.toLocaleString()}</span>
-            <span aria-hidden="true">·</span>
-            <span>REVENUE SPLIT: 85% CREATOR / 15% PLATFORM</span>
+            <span>UPLOAD FEE: $0.99</span>
+            {isOwnerAdmin && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-emerald-400">
+                  OWNER REVIEW QUEUE: {pendingAdminReviewsCount} PENDING
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -1249,8 +1461,9 @@ export default function App() {
 
             {user ? (
               <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-300 truncate max-w-[180px]">
+                <span className="text-slate-300 truncate max-w-[240px]">
                   Signed in as <strong className="text-white">{user.displayName || user.email}</strong>
+                  {isOwnerAdmin ? ' (Owner / Reviewer)' : ''}
                 </span>
                 <button
                   onClick={logOutUser}
@@ -1284,7 +1497,7 @@ export default function App() {
                   <div className="flex items-center gap-2 text-xs font-mono text-indigo-400">
                     <span>PLAYGROUND PLAY STORE</span>
                     <span aria-hidden="true">·</span>
-                    <span>INSTANT BROWSER INSTALL &amp; 85% CREATOR PAYOUTS</span>
+                    <span>OWNER-REVIEWED RELEASES &amp; 85% CREATOR PAYOUTS</span>
                   </div>
                   <h1
                     className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold font-display text-white tracking-tight leading-[1.15]"
@@ -1293,11 +1506,11 @@ export default function App() {
                     The Play Store for web apps, indie games, and developer tools.
                   </h1>
                   <p className="text-base text-slate-300 leading-relaxed max-w-2xl">
-                    Every app submitted through the Publisher Studio appears live in this Play Store catalog in real
-                    time. Launch free builds immediately in your browser, or purchase a{' '}
+                    Every customer app submitted through the Publisher Studio completes our Google Play–style safety and
+                    content rating questionnaire and is reviewed exclusively by the platform owner before going live in
+                    this Play Store catalog. Launch free builds in your browser, or purchase a{' '}
                     <strong className="text-white font-semibold">Creator Supporter Pass</strong> /{' '}
-                    <strong className="text-white font-semibold">Commercial App License</strong> to unlock Pro weapons,
-                    synth presets, puzzle auto-reveal tools, and send 85% directly to the creator.
+                    <strong className="text-white font-semibold">Commercial App License</strong>.
                   </p>
                 </div>
 
@@ -1307,14 +1520,14 @@ export default function App() {
                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Play className="w-4 h-4" />
-                    Install &amp; Play: Starlight Tactics
+                    Launch Sandbox: Starlight Tactics
                   </button>
                   <button
                     onClick={() => setActiveSection('publish')}
                     className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-                    Publish Your App to Play Store
+                    Submit Your App ($0.99 Upload)
                   </button>
                   <button
                     onClick={() => handleOpenCheckout(BUILT_IN_APPS[0], true)}
@@ -1336,7 +1549,7 @@ export default function App() {
                 <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-xs text-slate-400 truncate font-mono tabular-nums">
-                      #1 Top Game · 4.9 ★ · Everyone 10+
+                      Official Sandbox Template · Everyone 10+ (E10+)
                     </div>
                     <div className="text-sm font-semibold text-white truncate">
                       Starlight Tactics: Sector Zero
@@ -1424,8 +1637,8 @@ export default function App() {
                     01. Play Store App &amp; Game Directory
                   </h2>
                   <p className="text-sm text-slate-400 mt-1">
-                    Browse official flagship releases and live community apps published via the Publisher Studio. Click
-                    any app to launch it immediately in the browser or unlock its Supporter Pass perks.
+                    Showing real Firestore metrics only. Community submissions appear here once reviewed and approved by
+                    the platform owner.
                   </p>
                 </div>
 
@@ -1455,24 +1668,27 @@ export default function App() {
                     }`}
                   >
                     {cat === 'All'
-                      ? `All Play Store Apps (${allApps.length})`
+                      ? `All Approved Apps (${communityApps.length + BUILT_IN_APPS.length})`
                       : cat === 'My Published'
-                        ? `My Published (${communityApps.filter((a) => user && a.authorId === user.uid).length})`
+                        ? `My Submissions (${mySubmittedApps.length})`
                         : cat}
                   </button>
                 ))}
               </div>
 
-              {/* Live Community Published Banner (shows how Publisher Studio feeds the Play Store) */}
+              {/* Live Community Published Banner (shows real Firestore counts and empty state) */}
               <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-0.5">
                   <div className="text-xs font-mono text-emerald-400">
-                    LIVE FIRESTORE PLAY STORE FEED · {communityApps.length} COMMUNITY RELEASES ACTIVE
+                    LIVE FIRESTORE PLAY STORE FEED ·{' '}
+                    {communityApps.length > 0
+                      ? `${communityApps.length} APPROVED COMMUNITY RELEASES`
+                      : 'NO APPROVED COMMUNITY RELEASES YET'}
                   </div>
                   <p className="text-xs text-slate-300">
                     {communityApps.length > 0
-                      ? 'Community-published apps are live in the Play Store grid below alongside official flagship titles.'
-                      : 'Want to see a new app publish live to this Play Store? Submit an app in the Publisher Studio and it appears here immediately.'}
+                      ? 'Approved community-published apps are live in the Play Store grid below with real Firestore launch counts.'
+                      : 'No community apps have been approved yet. Submit an app in the Publisher Studio to send your questionnaire to the platform owner for approval.'}
                   </p>
                 </div>
                 <button
@@ -1480,7 +1696,7 @@ export default function App() {
                   className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Add App to Play Store
+                  Submit App for Owner Review
                 </button>
               </div>
 
@@ -1504,15 +1720,15 @@ export default function App() {
                     <h3 className="text-base font-semibold text-white">No matching apps or games found</h3>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
                       {selectedCategory === 'My Published' && !user
-                        ? 'Sign in with Google to view and manage the apps and games you have published to the Play Store.'
-                        : 'Try clearing your search filter or publish the first release in this category.'}
+                        ? 'Sign in with Google to view and track the approval status of the apps you have submitted.'
+                        : 'No releases match this filter yet.'}
                     </p>
                   </div>
                   <button
                     onClick={() => setActiveSection('publish')}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    Publish First Release
+                    Submit First Release
                   </button>
                 </div>
               ) : (
@@ -1539,17 +1755,21 @@ export default function App() {
                             />
                           </div>
 
-                          {/* Card Content — Zero-Pill Unboxed Metadata */}
+                          {/* Card Content — Zero-Pill Unboxed Metadata, Real Firestore Values Only */}
                           <div className="p-5 space-y-2.5">
                             <div className="flex items-center justify-between gap-2 text-xs text-slate-400 font-mono tabular-nums">
                               <div className="flex items-center gap-1.5 truncate">
-                                <span className="text-amber-400">4.9 ★</span>
-                                <span aria-hidden="true">·</span>
                                 <span>{appItem.category}</span>
                                 <span aria-hidden="true">·</span>
                                 <span>{appItem.ageRating}</span>
                                 <span aria-hidden="true">·</span>
-                                <span>{appItem.playsCount.toLocaleString()} installs</span>
+                                <span>
+                                  {appItem.isBuiltIn
+                                    ? 'Sandbox Template'
+                                    : appItem.playsCount > 0
+                                      ? `${appItem.playsCount.toLocaleString()} launches`
+                                      : 'No launches yet'}
+                                </span>
                               </div>
                               <span className="text-white font-semibold shrink-0">
                                 {isUnlocked
@@ -1578,7 +1798,14 @@ export default function App() {
                             </div>
 
                             <div className="text-[11px] text-slate-400 font-mono truncate">
-                              {appItem.isBuiltIn ? 'Official Flagship' : 'Community Published'} · {appItem.dataPrivacyPolicy}
+                              {appItem.isBuiltIn
+                                ? 'Official Sandbox Template'
+                                : appItem.reviewStatus === 'pending'
+                                  ? 'Pending Owner Review'
+                                  : appItem.reviewStatus === 'denied'
+                                    ? 'Denied by Owner'
+                                    : 'Owner Approved'}{' '}
+                              · {appItem.dataPrivacyPolicy}
                             </div>
                           </div>
                         </div>
@@ -1624,7 +1851,7 @@ export default function App() {
                               className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                             >
                               <Play className="w-3 h-3" />
-                              Install &amp; Play
+                              Launch
                             </button>
                           </div>
                         </div>
@@ -2081,17 +2308,188 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <div className="text-xs font-mono text-indigo-400">
-                  PUBLISHER ONBOARDING QUESTIONNAIRE · BACKEND COMPLIANCE &amp; FIRESTORE
+                  GOOGLE PLAY CONTENT RATING QUESTIONNAIRE · OWNER-ONLY REVIEW ({OWNER_ADMIN_EMAIL})
                 </div>
                 <h2 className="text-2xl font-bold font-display text-white mt-1">
-                  03. Publisher Questionnaire &amp; App Submission Studio
+                  03. Publisher Safety Questionnaire &amp; App Submission Studio
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  All creators adding apps or games complete the Publisher Questionnaire below to verify age ratings,
-                  privacy disclosures, accessibility, and 85/15 payment payout routing.
+                  All customers uploading an app or game must complete the Google Play–style safety and content rating
+                  questionnaire below. Every submission is reviewed exclusively by the platform owner (
+                  <code className="font-mono text-indigo-300">{OWNER_ADMIN_EMAIL}</code>), who is the only person
+                  authorized to accept or deny apps for the public Play Store catalog.
                 </p>
               </div>
             </div>
+
+            {/* STRICT OWNER-ONLY REVIEW & APPROVAL CONSOLE (redwinemegan61@gmail.com ONLY) */}
+            {isOwnerAdmin ? (
+              <div className="bg-[#111827] border border-indigo-700/80 rounded-xl p-6 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                  <div>
+                    <div className="text-xs font-mono text-emerald-400">
+                      OWNER-ONLY MODERATION CONSOLE · AUTHENTICATED AS {OWNER_ADMIN_EMAIL.toUpperCase()}
+                    </div>
+                    <h3 className="text-lg font-bold font-display text-white mt-0.5">
+                      Customer App &amp; Safety Questionnaire Review Queue
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Only you ({OWNER_ADMIN_EMAIL}) can see all customer questionnaires and accept or deny submitted
+                      applications. Approving a submission immediately publishes the linked app to the Play Store.
+                    </p>
+                  </div>
+                  <div className="text-xs font-mono text-slate-300 tabular-nums shrink-0">
+                    {adminQuestionnaires.filter((q) => (q.reviewStatus || 'pending') === 'pending').length} PENDING ·{' '}
+                    {adminQuestionnaires.length} TOTAL SUBMISSIONS
+                  </div>
+                </div>
+
+                {reviewActionStatus && (
+                  <div className="p-3 bg-indigo-950/60 border border-indigo-700 rounded-lg text-xs text-indigo-200 font-mono">
+                    {reviewActionStatus}
+                  </div>
+                )}
+
+                {adminQuestionnaires.length === 0 ? (
+                  <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-6 text-center text-xs text-slate-400">
+                    No customer questionnaires have been submitted yet. When a customer submits an app and safety
+                    questionnaire, it will appear here for your exclusive review.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {adminQuestionnaires.map((q) => {
+                      const status = q.reviewStatus || 'pending';
+                      const linkedApp = adminAllApps.find((a) => a.id === q.appId);
+                      return (
+                        <div
+                          key={q.id}
+                          className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-3 flex flex-col justify-between"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs font-mono">
+                              <span className="text-indigo-300">{q.complianceCertificateId}</span>
+                              <span
+                                className={
+                                  status === 'approved'
+                                    ? 'text-emerald-400 font-semibold'
+                                    : status === 'denied'
+                                      ? 'text-rose-400 font-semibold'
+                                      : 'text-amber-300 font-semibold'
+                                }
+                              >
+                                {status.toUpperCase()} · {q.createdAtLabel}
+                              </span>
+                            </div>
+
+                            <div className="text-sm font-bold font-display text-white">
+                              {linkedApp ? linkedApp.title : `Studio: ${q.studioName}`}
+                            </div>
+                            <div className="text-xs text-slate-300">
+                              Studio: <span className="text-white font-medium">{q.studioName}</span> · Support:{' '}
+                              <span className="font-mono text-slate-300">{q.supportContact}</span>
+                            </div>
+
+                            {/* Google Play Content Rating Breakdown */}
+                            <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-3 space-y-1 text-xs font-mono text-slate-300">
+                              <div className="text-indigo-300 font-semibold">
+                                CALCULATED GOOGLE PLAY RATING: {q.ageRating}
+                              </div>
+                              <div>
+                                General Safety Standards:{' '}
+                                <span className="text-white">
+                                  {q.generalSafetyStandards !== false ? 'Meets Standards (Yes)' : 'No'}
+                                </span>
+                              </div>
+                              <div>
+                                Violence / Gore:{' '}
+                                <span className="text-white">{q.violenceLevel || q.contentAdvisory || 'None'}</span>
+                              </div>
+                              <div>
+                                Fear / Horror: <span className="text-white">{q.fearLevel || 'None'}</span>
+                              </div>
+                              <div>
+                                Language / Profanity: <span className="text-white">{q.languageLevel || 'None'}</span>
+                              </div>
+                              <div>
+                                Controlled Substances: <span className="text-white">{q.substancesLevel || 'None'}</span>
+                              </div>
+                              <div>
+                                Gambling / Loot Boxes: <span className="text-white">{q.gamblingThemes || 'None'}</span>
+                              </div>
+                              <div>
+                                User Interaction:{' '}
+                                <span className="text-white">
+                                  {q.userInteraction || 'No User-to-User Interaction'}
+                                </span>
+                              </div>
+                              <div>
+                                Privacy &amp; Accessibility:{' '}
+                                <span className="text-slate-300">
+                                  {q.dataPrivacyPolicy} · {q.accessibilityFeatures}
+                                </span>
+                              </div>
+                            </div>
+
+                            <input
+                              type="text"
+                              value={adminNotesMap[q.id] ?? q.adminReviewNotes ?? ''}
+                              onChange={(e) =>
+                                setAdminNotesMap((prev) => ({
+                                  ...prev,
+                                  [q.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Optional owner review note (saved to Firestore)..."
+                              className="w-full px-3 py-1.5 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
+                            <button
+                              type="button"
+                              onClick={() => handleOwnerReviewDecision(q, 'approved')}
+                              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            >
+                              Approve &amp; Publish to Play Store
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOwnerReviewDecision(q, 'denied')}
+                              className="flex-1 py-2 px-3 bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            >
+                              Deny Submission
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="text-xs font-mono text-amber-300">
+                    EXCLUSIVE OWNER REVIEW POLICY · REVIEWED ONLY BY {OWNER_ADMIN_EMAIL.toUpperCase()}
+                  </div>
+                  <div className="text-sm font-bold font-display text-white">
+                    Your Questionnaire &amp; App Submission Are Reviewed Strictly by the Platform Owner
+                  </div>
+                  <p className="text-xs text-slate-400 max-w-3xl">
+                    After you complete the Google Play content rating &amp; safety questionnaire below and submit your
+                    app, your questionnaire is locked so only the platform owner ({OWNER_ADMIN_EMAIL}) can inspect it
+                    and accept or deny publication to the public Play Store catalog.
+                  </p>
+                </div>
+                {mySubmittedApps.length > 0 && (
+                  <div className="text-xs font-mono text-slate-300 shrink-0 bg-[#0B0F17] border border-slate-800 rounded-lg px-3.5 py-2.5">
+                    YOUR SUBMISSIONS: {mySubmittedApps.filter((a) => a.reviewStatus === 'approved').length} APPROVED ·{' '}
+                    {mySubmittedApps.filter((a) => (a.reviewStatus || 'pending') === 'pending').length} PENDING ·{' '}
+                    {mySubmittedApps.filter((a) => a.reviewStatus === 'denied').length} DENIED
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Main Publishing + Questionnaire Form */}
@@ -2233,11 +2631,11 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Part B: Mandatory Publisher Questionnaire */}
+                {/* Part B: Mandatory Google Play Store–Style Safety & Content Rating Questionnaire */}
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <span className="text-xs font-mono text-emerald-400">
-                      SECTION B · MANDATORY PUBLISHER QUESTIONNAIRE
+                      SECTION B · GOOGLE PLAY CONTENT RATING &amp; SAFETY QUESTIONNAIRE
                     </span>
                     {verifiedCertId && (
                       <span className="text-xs font-mono text-emerald-300">
@@ -2280,43 +2678,155 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-medium text-slate-300">
-                        3. Target Age Rating *
-                      </label>
-                      <select
-                        value={qAgeRating}
-                        onChange={(e) => setQAgeRating(e.target.value as AgeRating)}
-                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="Everyone (E)">Everyone (E)</option>
-                        <option value="Everyone 10+ (E10+)">Everyone 10+ (E10+)</option>
-                        <option value="Teen (T)">Teen (T)</option>
-                        <option value="Mature 17+ (M)">Mature 17+ (M)</option>
-                      </select>
+                  {/* Google Play Content Rating Questions */}
+                  <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                      <div>
+                        <div className="text-xs font-mono text-indigo-300 font-semibold">
+                          GOOGLE PLAY / IARC CONTENT RATING DISCLOSURES
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Answer the official content rating questions below. Your Official Age Rating updates
+                          automatically based on your disclosures.
+                        </p>
+                      </div>
+                      <div className="text-xs font-mono text-emerald-400 shrink-0">
+                        RATING: {qAgeRating}
+                      </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-medium text-slate-300">
-                        4. Action / Combat Content Advisory *
-                      </label>
-                      <select
-                        value={qContentAdvisory}
-                        onChange={(e) => setQContentAdvisory(e.target.value as ContentAdvisory)}
-                        className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="None">None</option>
-                        <option value="Mild Cartoon / Tactical">Mild Cartoon / Tactical</option>
-                        <option value="Moderate">Moderate</option>
-                      </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          3. Violence, Blood, or Gore Score *
+                        </label>
+                        <select
+                          value={qViolenceLevel}
+                          onChange={(e) => setQViolenceLevel(e.target.value as ViolenceLevel)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None (No violent content)</option>
+                          <option value="Cartoon or Fantasy Violence">Cartoon or Fantasy Violence</option>
+                          <option value="Realistic or Intense Violence">Realistic or Intense Violence / Gore</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          4. Fear, Horror, or Disturbing Themes *
+                        </label>
+                        <select
+                          value={qFearLevel}
+                          onChange={(e) => setQFearLevel(e.target.value as FearLevel)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None</option>
+                          <option value="Mild Suspense / Spooky Themes">Mild Suspense / Spooky Themes</option>
+                          <option value="Intense Horror / Graphic Trauma">Intense Horror / Graphic Trauma</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          5. Profanity, Crude Humor, or Mature Language *
+                        </label>
+                        <select
+                          value={qLanguageLevel}
+                          onChange={(e) => setQLanguageLevel(e.target.value as LanguageLevel)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None</option>
+                          <option value="Mild / Infrequent Profanity">Mild / Infrequent Profanity</option>
+                          <option value="Explicit / Frequent Profanity">Explicit / Frequent Profanity</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          6. Controlled Substances (Alcohol, Tobacco, Drugs) *
+                        </label>
+                        <select
+                          value={qSubstancesLevel}
+                          onChange={(e) => setQSubstancesLevel(e.target.value as SubstancesLevel)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None</option>
+                          <option value="References to Alcohol / Tobacco">References to Alcohol / Tobacco</option>
+                          <option value="Depicts Drug / Alcohol Use">Depicts Drug / Alcohol Use</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          7. Gambling, Simulated Casino, or Paid Loot Boxes *
+                        </label>
+                        <select
+                          value={qGamblingThemes}
+                          onChange={(e) => setQGamblingThemes(e.target.value as GamblingThemes)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None</option>
+                          <option value="Simulated Gambling (No Real Money)">
+                            Simulated Gambling (No Real Money)
+                          </option>
+                          <option value="Paid Random Items / Loot Boxes">Paid Random Items / Loot Boxes</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          8. Online User Interaction &amp; UGC Sharing *
+                        </label>
+                        <select
+                          value={qUserInteraction}
+                          onChange={(e) => setQUserInteraction(e.target.value as UserInteractionLevel)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="No User-to-User Interaction">No User-to-User Interaction</option>
+                          <option value="Moderated Profiles / Leaderboards">Moderated Profiles / Leaderboards</option>
+                          <option value="Unmoderated Chat or User Content">Unmoderated Chat or User Content</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          Calculated Google Play Age Rating *
+                        </label>
+                        <select
+                          value={qAgeRating}
+                          onChange={(e) => setQAgeRating(e.target.value as AgeRating)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-emerald-300 font-semibold focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="Everyone (E)">Everyone (E)</option>
+                          <option value="Everyone 10+ (E10+)">Everyone 10+ (E10+)</option>
+                          <option value="Teen (T)">Teen (T)</option>
+                          <option value="Mature 17+ (M)">Mature 17+ (M)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-slate-300">
+                          Summary Content Advisory *
+                        </label>
+                        <select
+                          value={qContentAdvisory}
+                          onChange={(e) => setQContentAdvisory(e.target.value as ContentAdvisory)}
+                          className="w-full px-3.5 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="None">None</option>
+                          <option value="Mild Cartoon / Tactical">Mild Cartoon / Tactical</option>
+                          <option value="Moderate">Moderate</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        5. Data Privacy &amp; Telemetry Declaration *
+                        9. Data Privacy &amp; Telemetry Declaration *
                       </label>
                       <select
                         value={qDataPrivacy}
@@ -2331,7 +2841,7 @@ export default function App() {
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        6. Accessibility &amp; Input Features *
+                        10. Accessibility &amp; Input Features *
                       </label>
                       <select
                         value={qAccessibility}
@@ -2349,7 +2859,7 @@ export default function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        7. Monetization Model *
+                        11. Monetization Model *
                       </label>
                       <select
                         value={qMonetization}
@@ -2372,7 +2882,7 @@ export default function App() {
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        8. License Price (USD $) *
+                        12. License Price (USD $) *
                       </label>
                       <input
                         type="number"
@@ -2388,7 +2898,7 @@ export default function App() {
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        9. Creator Payout Rail *
+                        13. Creator Payout Rail *
                       </label>
                       <select
                         value={qPayoutMethod}
@@ -2423,12 +2933,26 @@ export default function App() {
                     <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
                       <input
                         type="checkbox"
+                        checked={qGeneralSafetyStandards}
+                        onChange={(e) => setQGeneralSafetyStandards(e.target.checked)}
+                        className="mt-0.5 accent-indigo-500"
+                      />
+                      <span>
+                        14. <strong>General Safety Standards Attestation:</strong> I confirm this application meets
+                        general platform safety standards, contains no malware, deceptive phishing, or prohibited
+                        illegal content, and accurately discloses all violence, horror, language, and user-interaction
+                        elements above.
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
                         checked={qTestedSandbox}
                         onChange={(e) => setQTestedSandbox(e.target.checked)}
                         className="mt-0.5 accent-indigo-500"
                       />
                       <span>
-                        10. I confirm this application or game has been tested in the browser sandbox with working
+                        15. I confirm this application or game has been tested in the browser sandbox with working
                         controls and zero broken assets.
                       </span>
                     </label>
@@ -2440,8 +2964,9 @@ export default function App() {
                         className="mt-0.5 accent-indigo-500"
                       />
                       <span>
-                        11. I accept the App and Game Playground Publisher Distribution Agreement ($0.99 per app upload
-                        fee and 85% Creator / 15% Platform sales split).
+                        16. I accept the App and Game Playground Publisher Distribution Agreement ($0.99 per app upload
+                        fee, 85% Creator / 15% Platform sales split, and exclusive review &amp; approval by{' '}
+                        <code className="font-mono text-indigo-300">{OWNER_ADMIN_EMAIL}</code>).
                       </span>
                     </label>
                   </div>
@@ -2454,8 +2979,8 @@ export default function App() {
                       </div>
                       <p className="text-xs text-slate-300">
                         {uploadFeePaid
-                          ? '✓ Your $0.99 upload fee is paid and verified! Click below to publish immediately.'
-                          : 'Deploying a customer app to the Play Store is a flat $0.99 (99 cents) per upload.'}
+                          ? '✓ Your $0.99 upload fee is paid and verified! Click below to submit for owner review.'
+                          : 'Uploading a customer app for review and deployment is a flat $0.99 (99 cents) per upload.'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -2492,7 +3017,7 @@ export default function App() {
                     className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-700/60 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    {verifyingQuestionnaire ? 'Validating...' : 'Pre-Check Questionnaire on Backend'}
+                    {verifyingQuestionnaire ? 'Validating...' : 'Pre-Check Safety Questionnaire'}
                   </button>
 
                   <button
@@ -2502,10 +3027,12 @@ export default function App() {
                   >
                     <Layers className="w-4 h-4" />
                     {isPublishing
-                      ? 'Validating & Publishing...'
+                      ? 'Submitting...'
                       : uploadFeePaid
-                        ? 'Verify Questionnaire & Publish App'
-                        : 'Pay $0.99 & Publish App to Play Store'}
+                        ? isOwnerAdmin
+                          ? 'Verify Questionnaire & Publish App Immediately'
+                          : 'Submit App & Questionnaire for Owner Review'
+                        : 'Pay $0.99 & Submit App for Owner Review'}
                   </button>
                 </div>
               </form>
@@ -2578,6 +3105,9 @@ export default function App() {
                       {pubTagline || 'Your single-line tagline will appear here on the catalog grid.'}
                     </p>
                     <div className="text-[11px] font-mono text-slate-400 pt-1">
+                      Violence: {qViolenceLevel} · Fear: {qFearLevel} · Language: {qLanguageLevel}
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-400">
                       {qDataPrivacy} · {qAccessibility}
                     </div>
                   </div>
@@ -2607,11 +3137,11 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => handleOpenCheckout(BUILT_IN_APPS[1])}
+                onClick={handleOpenUploadFeeCheckout}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <CreditCard className="w-4 h-4" />
-                Run Test Payment ($4.99)
+                Pay $0.99 App Upload Fee
               </button>
             </div>
 
@@ -2751,16 +3281,10 @@ export default function App() {
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-white">No payment transactions recorded yet</div>
                       <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                        Purchase an app license or send a Creator Supporter Pass to see live backend settlement and
-                        Firestore receipt records here.
+                        Pay a $0.99 customer app upload fee, purchase an app license, or send a Creator Supporter Pass
+                        to see live backend settlement and Firestore receipt records here.
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleOpenCheckout(BUILT_IN_APPS[1])}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-                    >
-                      Run First Checkout ($4.99)
-                    </button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2826,8 +3350,8 @@ export default function App() {
                 {myQuestionnaires.length === 0 ? (
                   <div className="text-xs text-slate-400 space-y-3 py-4">
                     <p>
-                      When you submit a new app or game in the Publisher Studio, your verified questionnaire record and
-                      compliance certificate appear here.
+                      When you submit a new app or game in the Publisher Studio, your Google Play safety questionnaire
+                      and owner review status appear here.
                     </p>
                     <button
                       onClick={() => setActiveSection('publish')}
@@ -2845,10 +3369,16 @@ export default function App() {
                       >
                         <div className="flex items-center justify-between font-mono text-emerald-400">
                           <span>{q.complianceCertificateId}</span>
-                          <span className="text-slate-400">{q.createdAtLabel}</span>
+                          <span className="text-slate-400">
+                            {(q.reviewStatus || 'pending').toUpperCase()} · {q.createdAtLabel}
+                          </span>
                         </div>
                         <div className="font-semibold text-white">
                           Studio: {q.studioName} · {q.ageRating}
+                        </div>
+                        <div className="text-slate-400 font-mono text-[11px]">
+                          Violence: {q.violenceLevel || q.contentAdvisory || 'None'} · Fear: {q.fearLevel || 'None'} ·
+                          Language: {q.languageLevel || 'None'}
                         </div>
                         <div className="text-slate-400">
                           {q.dataPrivacyPolicy} · {q.accessibilityFeatures}

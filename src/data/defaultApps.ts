@@ -25,6 +25,38 @@ export type AgeRating =
 
 export type ContentAdvisory = 'None' | 'Mild Cartoon / Tactical' | 'Moderate';
 
+export type ViolenceLevel =
+  | 'None'
+  | 'Cartoon or Fantasy Violence'
+  | 'Realistic or Intense Violence';
+
+export type FearLevel =
+  | 'None'
+  | 'Mild Suspense / Spooky Themes'
+  | 'Intense Horror / Graphic Trauma';
+
+export type LanguageLevel =
+  | 'None'
+  | 'Mild / Infrequent Profanity'
+  | 'Explicit / Frequent Profanity';
+
+export type SubstancesLevel =
+  | 'None'
+  | 'References to Alcohol / Tobacco'
+  | 'Depicts Drug / Alcohol Use';
+
+export type GamblingThemes =
+  | 'None'
+  | 'Simulated Gambling (No Real Money)'
+  | 'Paid Random Items / Loot Boxes';
+
+export type UserInteractionLevel =
+  | 'No User-to-User Interaction'
+  | 'Moderated Profiles / Leaderboards'
+  | 'Unmoderated Chat or User Content';
+
+export type ReviewStatus = 'pending' | 'approved' | 'denied';
+
 export type DataPrivacyPolicy =
   | 'Zero Data Collected'
   | 'Anonymous Gameplay Telemetry Only'
@@ -61,6 +93,8 @@ export interface PlaygroundAppItem {
   accessibilityFeatures: AccessibilityFeatureSet;
   aiVisualSummary: string;
   stripePaymentLink?: string;
+  reviewStatus?: ReviewStatus;
+  adminReviewNotes?: string;
   createdAtLabel: string;
   isBuiltIn?: boolean;
 }
@@ -101,13 +135,59 @@ export interface PublisherQuestionnaireItem {
   studioName: string;
   ageRating: AgeRating;
   contentAdvisory: ContentAdvisory;
+  violenceLevel: ViolenceLevel;
+  fearLevel: FearLevel;
+  languageLevel: LanguageLevel;
+  substancesLevel: SubstancesLevel;
+  gamblingThemes: GamblingThemes;
+  userInteraction: UserInteractionLevel;
+  generalSafetyStandards: boolean;
   dataPrivacyPolicy: DataPrivacyPolicy;
   accessibilityFeatures: AccessibilityFeatureSet;
   monetizationModel: MonetizationModel;
   payoutMethod: PayoutMethod;
   supportContact: string;
   complianceCertificateId: string;
+  reviewStatus: ReviewStatus;
+  adminReviewNotes?: string;
   createdAtLabel: string;
+}
+
+export function calculateGooglePlayRating(params: {
+  violenceLevel: ViolenceLevel;
+  fearLevel: FearLevel;
+  languageLevel: LanguageLevel;
+  substancesLevel: SubstancesLevel;
+  gamblingThemes: GamblingThemes;
+  userInteraction: UserInteractionLevel;
+}): AgeRating {
+  if (
+    params.violenceLevel === 'Realistic or Intense Violence' ||
+    params.fearLevel === 'Intense Horror / Graphic Trauma' ||
+    params.languageLevel === 'Explicit / Frequent Profanity' ||
+    params.substancesLevel === 'Depicts Drug / Alcohol Use'
+  ) {
+    return 'Mature 17+ (M)';
+  }
+
+  if (
+    params.gamblingThemes === 'Simulated Gambling (No Real Money)' ||
+    params.gamblingThemes === 'Paid Random Items / Loot Boxes' ||
+    params.substancesLevel === 'References to Alcohol / Tobacco' ||
+    params.languageLevel === 'Mild / Infrequent Profanity' ||
+    params.userInteraction === 'Unmoderated Chat or User Content'
+  ) {
+    return 'Teen (T)';
+  }
+
+  if (
+    params.violenceLevel === 'Cartoon or Fantasy Violence' ||
+    params.fearLevel === 'Mild Suspense / Spooky Themes'
+  ) {
+    return 'Everyone 10+ (E10+)';
+  }
+
+  return 'Everyone (E)';
 }
 
 export interface GeminiImageAnalysisResult {
@@ -257,8 +337,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     authorId: 'playground-studio',
     authorName: 'Playground Core Studio',
     isPublic: true,
-    playsCount: 1420,
-    likesCount: 389,
+    playsCount: 0,
+    likesCount: 0,
     priceCents: 0,
     monetizationModel: 'Creator Supporter Pass',
     ageRating: 'Everyone 10+ (E10+)',
@@ -266,7 +346,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     accessibilityFeatures: 'Keyboard + Mouse + High-Contrast',
     aiVisualSummary:
       'Verified 60-30-10 velvet navy arena palette (#0A192F), high-contrast tactical ship tokens, non-hue-only shield & hull bars, and responsive 180ms turn transitions.',
-    createdAtLabel: 'Featured Release',
+    reviewStatus: 'approved',
+    createdAtLabel: 'Official Sandbox Template',
     isBuiltIn: true,
   },
   {
@@ -282,8 +363,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     authorId: 'playground-studio',
     authorName: 'Playground Audio Lab',
     isPublic: true,
-    playsCount: 985,
-    likesCount: 312,
+    playsCount: 0,
+    likesCount: 0,
     priceCents: 499,
     monetizationModel: 'One-Time Purchase',
     ageRating: 'Everyone (E)',
@@ -291,7 +372,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     accessibilityFeatures: 'Full Controller + Audio Cues',
     aiVisualSummary:
       'Tactile dark-slate hardware matrix with tabular BPM readouts, active step playhead indicator, and accessible 44px pad targets.',
-    createdAtLabel: 'Featured Release',
+    reviewStatus: 'approved',
+    createdAtLabel: 'Official Sandbox Template',
     isBuiltIn: true,
   },
   {
@@ -307,8 +389,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     authorId: 'playground-studio',
     authorName: 'Playground Studio',
     isPublic: true,
-    playsCount: 1190,
-    likesCount: 428,
+    playsCount: 0,
+    likesCount: 0,
     priceCents: 0,
     monetizationModel: 'Free to Play',
     ageRating: 'Everyone (E)',
@@ -316,7 +398,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     accessibilityFeatures: 'Touch + Screen Reader Friendly',
     aiVisualSummary:
       'WCAG AAA contrast ratios, 48px minimum grid cells, zero countdown stress timers, and explicit 4-stage progressive assistance.',
-    createdAtLabel: 'Featured Release',
+    reviewStatus: 'approved',
+    createdAtLabel: 'Official Sandbox Template',
     isBuiltIn: true,
   },
   {
@@ -332,8 +415,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     authorId: 'playground-studio',
     authorName: 'SDK Engineering Guild',
     isPublic: true,
-    playsCount: 864,
-    likesCount: 295,
+    playsCount: 0,
+    likesCount: 0,
     priceCents: 900,
     monetizationModel: 'One-Time Purchase',
     ageRating: 'Everyone (E)',
@@ -341,7 +424,8 @@ export const BUILT_IN_APPS: PlaygroundAppItem[] = [
     accessibilityFeatures: 'Keyboard + Mouse + High-Contrast',
     aiVisualSummary:
       'Includes verified fix-issue-3060.patch for googleapis/python-genai plus live server-side gemini-4-argon multimodal image understanding.',
-    createdAtLabel: 'Featured Release',
+    reviewStatus: 'approved',
+    createdAtLabel: 'Official Sandbox Template',
     isBuiltIn: true,
   },
 ];

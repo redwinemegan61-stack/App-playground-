@@ -109,6 +109,17 @@
           "description": "Optional Stripe Payment Link URL (e.g. https://buy.stripe.com/...) for live Stripe checkout.",
           "maxLength": 500
         },
+        "reviewStatus": {
+          "type": "string",
+          "description": "Admin moderation status controlled exclusively by redwinemegan61@gmail.com.",
+          "enum": ["pending", "approved", "denied"],
+          "maxLength": 16
+        },
+        "adminReviewNotes": {
+          "type": "string",
+          "description": "Optional decision notes written by the platform owner during app review.",
+          "maxLength": 500
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -195,7 +206,7 @@
     },
     "PublisherQuestionnaire": {
       "title": "PublisherQuestionnaire",
-      "description": "Completed publisher vetting, age rating, privacy, and payout compliance questionnaire submitted when adding an app.",
+      "description": "Google Play Console-style content rating, safety standards, violence/gore, and compliance questionnaire reviewed exclusively by the platform owner.",
       "type": "object",
       "properties": {
         "appId": {
@@ -227,6 +238,40 @@
           "type": "string",
           "enum": ["None", "Mild Cartoon / Tactical", "Moderate"],
           "maxLength": 40
+        },
+        "violenceLevel": {
+          "type": "string",
+          "enum": ["None", "Cartoon or Fantasy Violence", "Realistic or Intense Violence"],
+          "maxLength": 64
+        },
+        "fearLevel": {
+          "type": "string",
+          "enum": ["None", "Mild Suspense / Spooky Themes", "Intense Horror / Graphic Trauma"],
+          "maxLength": 64
+        },
+        "languageLevel": {
+          "type": "string",
+          "enum": ["None", "Mild / Infrequent Profanity", "Explicit / Frequent Profanity"],
+          "maxLength": 64
+        },
+        "substancesLevel": {
+          "type": "string",
+          "enum": ["None", "References to Alcohol / Tobacco", "Depicts Drug / Alcohol Use"],
+          "maxLength": 64
+        },
+        "gamblingThemes": {
+          "type": "string",
+          "enum": ["None", "Simulated Gambling (No Real Money)", "Paid Random Items / Loot Boxes"],
+          "maxLength": 64
+        },
+        "userInteraction": {
+          "type": "string",
+          "enum": ["No User-to-User Interaction", "Moderated Profiles / Leaderboards", "Unmoderated Chat or User Content"],
+          "maxLength": 64
+        },
+        "generalSafetyStandards": {
+          "type": "boolean",
+          "description": "Attestation that the app meets general safety standards (no malware, deceptive behavior, hate speech, or illegal content)."
         },
         "dataPrivacyPolicy": {
           "type": "string",
@@ -267,6 +312,15 @@
           "description": "Backend-issued questionnaire verification ID.",
           "minLength": 4,
           "maxLength": 64
+        },
+        "reviewStatus": {
+          "type": "string",
+          "enum": ["pending", "approved", "denied"],
+          "maxLength": 16
+        },
+        "adminReviewNotes": {
+          "type": "string",
+          "maxLength": 500
         },
         "createdAt": {
           "type": "string",

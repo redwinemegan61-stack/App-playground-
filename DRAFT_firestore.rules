@@ -49,7 +49,8 @@ service cloud.firestore {
         'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
         'playsCount', 'likesCount', 'priceCents', 'monetizationModel',
         'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures',
-        'aiVisualSummary', 'stripePaymentLink', 'createdAt', 'updatedAt'
+        'aiVisualSummary', 'stripePaymentLink', 'reviewStatus', 'adminReviewNotes',
+        'createdAt', 'updatedAt'
       ]) &&
       data.title is string && data.title.size() >= 2 && data.title.size() <= 80 &&
       data.tagline is string && data.tagline.size() >= 4 && data.tagline.size() <= 140 &&
@@ -77,6 +78,8 @@ service cloud.firestore {
       data.accessibilityFeatures in ['Keyboard + Mouse + High-Contrast', 'Touch + Screen Reader Friendly', 'Full Controller + Audio Cues'] &&
       data.aiVisualSummary is string && data.aiVisualSummary.size() <= 1000 &&
       (!('stripePaymentLink' in data) || (data.stripePaymentLink is string && data.stripePaymentLink.size() <= 500)) &&
+      (!('reviewStatus' in data) || (data.reviewStatus is string && data.reviewStatus.size() <= 16 && data.reviewStatus in ['pending', 'approved', 'denied'])) &&
+      (!('adminReviewNotes' in data) || (data.adminReviewNotes is string && data.adminReviewNotes.size() <= 500)) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -109,9 +112,12 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'appId', 'authorId', 'studioName', 'ageRating', 'contentAdvisory',
+        'violenceLevel', 'fearLevel', 'languageLevel', 'substancesLevel',
+        'gamblingThemes', 'userInteraction', 'generalSafetyStandards',
         'dataPrivacyPolicy', 'accessibilityFeatures', 'monetizationModel',
         'payoutMethod', 'supportContact', 'testedOfflineAndSandbox',
-        'acceptedPublisherTerms', 'complianceCertificateId', 'createdAt'
+        'acceptedPublisherTerms', 'complianceCertificateId',
+        'reviewStatus', 'adminReviewNotes', 'createdAt'
       ]) &&
       data.appId is string && data.appId.size() >= 1 && data.appId.size() <= 128 &&
       data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
@@ -122,6 +128,13 @@ service cloud.firestore {
       data.ageRating in ['Everyone (E)', 'Everyone 10+ (E10+)', 'Teen (T)', 'Mature 17+ (M)'] &&
       data.contentAdvisory is string && data.contentAdvisory.size() <= 40 &&
       data.contentAdvisory in ['None', 'Mild Cartoon / Tactical', 'Moderate'] &&
+      (!('violenceLevel' in data) || (data.violenceLevel is string && data.violenceLevel.size() <= 64 && data.violenceLevel in ['None', 'Cartoon or Fantasy Violence', 'Realistic or Intense Violence'])) &&
+      (!('fearLevel' in data) || (data.fearLevel is string && data.fearLevel.size() <= 64 && data.fearLevel in ['None', 'Mild Suspense / Spooky Themes', 'Intense Horror / Graphic Trauma'])) &&
+      (!('languageLevel' in data) || (data.languageLevel is string && data.languageLevel.size() <= 64 && data.languageLevel in ['None', 'Mild / Infrequent Profanity', 'Explicit / Frequent Profanity'])) &&
+      (!('substancesLevel' in data) || (data.substancesLevel is string && data.substancesLevel.size() <= 64 && data.substancesLevel in ['None', 'References to Alcohol / Tobacco', 'Depicts Drug / Alcohol Use'])) &&
+      (!('gamblingThemes' in data) || (data.gamblingThemes is string && data.gamblingThemes.size() <= 64 && data.gamblingThemes in ['None', 'Simulated Gambling (No Real Money)', 'Paid Random Items / Loot Boxes'])) &&
+      (!('userInteraction' in data) || (data.userInteraction is string && data.userInteraction.size() <= 64 && data.userInteraction in ['No User-to-User Interaction', 'Moderated Profiles / Leaderboards', 'Unmoderated Chat or User Content'])) &&
+      (!('generalSafetyStandards' in data) || (data.generalSafetyStandards is bool && data.generalSafetyStandards == true)) &&
       data.dataPrivacyPolicy is string && data.dataPrivacyPolicy.size() <= 64 &&
       data.dataPrivacyPolicy in ['Zero Data Collected', 'Anonymous Gameplay Telemetry Only', 'Authenticated Account Sync'] &&
       data.accessibilityFeatures is string && data.accessibilityFeatures.size() <= 64 &&
@@ -134,6 +147,8 @@ service cloud.firestore {
       data.testedOfflineAndSandbox is bool && data.testedOfflineAndSandbox == true &&
       data.acceptedPublisherTerms is bool && data.acceptedPublisherTerms == true &&
       data.complianceCertificateId is string && data.complianceCertificateId.size() >= 4 && data.complianceCertificateId.size() <= 64 &&
+      (!('reviewStatus' in data) || (data.reviewStatus is string && data.reviewStatus.size() <= 16 && data.reviewStatus in ['pending', 'approved', 'denied'])) &&
+      (!('adminReviewNotes' in data) || (data.adminReviewNotes is string && data.adminReviewNotes.size() <= 500)) &&
       data.createdAt is timestamp;
     }
 
@@ -191,7 +206,7 @@ service cloud.firestore {
         isAdmin()
       );
 
-      allow list: if existing().isPublic == true || (isSignedIn() && existing().authorId == request.auth.uid);
+      allow list: if existing().isPublic == true || (isSignedIn() && existing().authorId == request.auth.uid) || isAdmin();
 
       allow create: if isVerifiedUser() &&
         isValidId(appId) &&
@@ -200,7 +215,12 @@ service cloud.firestore {
         incoming().playsCount == 0 &&
         incoming().likesCount == 0 &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            incoming().isPublic == false &&
+            incoming().reviewStatus == 'pending'
+          )
+        );
 
       allow update: if isVerifiedUser() &&
         isValidId(appId) &&
@@ -208,12 +228,14 @@ service cloud.firestore {
         incoming().authorId == existing().authorId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time && (
+          // Owner / Admin (redwinemegan61@gmail.com) can approve/deny and set isPublic, reviewStatus, adminReviewNotes
           isAdmin() ||
-          // Action 1: Publisher edits metadata or pricing
+          // Action 1: Publisher edits metadata or pricing (cannot self-approve or flip isPublic to true)
           (existing().authorId == request.auth.uid &&
+            incoming().isPublic == existing().isPublic &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'tagline', 'description', 'category', 'playType',
-              'externalUrl', 'version', 'isPublic', 'priceCents', 'monetizationModel',
+              'externalUrl', 'version', 'priceCents', 'monetizationModel',
               'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures', 'aiVisualSummary', 'stripePaymentLink', 'updatedAt'
             ])
           ) ||
@@ -280,24 +302,36 @@ service cloud.firestore {
       }
     }
 
-    // Collection: Publisher Onboarding & Compliance Questionnaires
+    // Collection: Publisher Onboarding & Compliance Questionnaires (Reviewed Exclusively by Admin redwinemegan61@gmail.com)
     match /publisherQuestionnaires/{questionnaireId} {
       allow get: if isVerifiedUser() && isValidId(questionnaireId) && (
         existing().authorId == request.auth.uid ||
         isAdmin()
       );
 
-      allow list: if isVerifiedUser() && existing().authorId == request.auth.uid;
+      allow list: if isVerifiedUser() && (
+        existing().authorId == request.auth.uid ||
+        isAdmin()
+      );
 
       allow create: if isVerifiedUser() &&
         isValidId(questionnaireId) &&
         isValidPublisherQuestionnaire(incoming()) &&
         incoming().authorId == request.auth.uid &&
         incoming().createdAt == request.time &&
+        (isAdmin() || (!('reviewStatus' in incoming()) || incoming().reviewStatus == 'pending')) &&
         exists(/databases/$(database)/documents/apps/$(incoming().appId)) &&
         get(/databases/$(database)/documents/apps/$(incoming().appId)).data.authorId == request.auth.uid;
 
-      allow update, delete: if false;
+      allow update: if isAdmin() &&
+        isValidId(questionnaireId) &&
+        isValidPublisherQuestionnaire(incoming()) &&
+        incoming().authorId == existing().authorId &&
+        incoming().appId == existing().appId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['reviewStatus', 'adminReviewNotes']);
+
+      allow delete: if isAdmin() && isValidId(questionnaireId);
     }
 
     // Collection: Payment & Creator Support Transactions (Immutable Ledger)
