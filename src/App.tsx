@@ -133,7 +133,10 @@ interface BackendLedgerSummary {
   }>;
 }
 
-const LIVE_SHARED_WEB_URL = 'https://ais-pre-3hhknymbqekkoelmdgwoap-464573425992.us-west1.run.app';
+const LIVE_SHARED_WEB_URL =
+  typeof window !== 'undefined' && !window.location.origin.includes('ais-dev-')
+    ? window.location.origin
+    : 'https://ais-pre-3hhknymbqekkoelmdgwoap-464573425992.us-west1.run.app';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
