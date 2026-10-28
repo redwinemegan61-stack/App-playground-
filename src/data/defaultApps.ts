@@ -60,6 +60,7 @@ export interface PlaygroundAppItem {
   dataPrivacyPolicy: DataPrivacyPolicy;
   accessibilityFeatures: AccessibilityFeatureSet;
   aiVisualSummary: string;
+  stripePaymentLink?: string;
   createdAtLabel: string;
   isBuiltIn?: boolean;
 }

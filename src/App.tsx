@@ -102,6 +102,7 @@ function formatFirestoreDate(val: unknown): string {
 
 interface BackendLedgerSummary {
   gatewayStatus: string;
+  stripePaymentLink?: string;
   totalTransactions: number;
   totalVolumeCents: number;
   totalCreatorPayoutCents: number;
@@ -121,6 +122,8 @@ interface BackendLedgerSummary {
     createdAtIso: string;
   }>;
 }
+
+const LIVE_SHARED_WEB_URL = 'https://ais-pre-3hhknymbqekkoelmdgwoap-464573425992.us-west1.run.app';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -170,6 +173,29 @@ export default function App() {
   const [qPayoutMethod, setQPayoutMethod] = useState<PayoutMethod>(
     'Stripe Connect Express (85% Creator / 15% Platform)'
   );
+  const [qStripePaymentLink, setQStripePaymentLink] = useState<string>(() => {
+    try {
+      return localStorage.getItem('playground_stripe_link') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [platformStripeLink, setPlatformStripeLink] = useState<string>(() => {
+    try {
+      return localStorage.getItem('playground_stripe_link') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [stripeLinkInput, setStripeLinkInput] = useState<string>(() => {
+    try {
+      return localStorage.getItem('playground_stripe_link') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [stripeSaveNotice, setStripeSaveNotice] = useState<string | null>(null);
+  const [copiedLiveUrl, setCopiedLiveUrl] = useState<boolean>(false);
   const [qSupportContact, setQSupportContact] = useState<string>('support@playground-creator.dev');
   const [qTestedSandbox, setQTestedSandbox] = useState<boolean>(true);
   const [qAcceptedTerms, setQAcceptedTerms] = useState<boolean>(true);
@@ -223,11 +249,49 @@ export default function App() {
       if (res.ok) {
         const data: BackendLedgerSummary = await res.json();
         setBackendLedger(data);
+        if (data.stripePaymentLink) {
+          setPlatformStripeLink(data.stripePaymentLink);
+          setStripeLinkInput((prev) => prev || data.stripePaymentLink || '');
+        }
       }
     } catch {
       // Ignore transient network errors
     }
   }, []);
+
+  const handleSaveStripePaymentLink = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleaned = stripeLinkInput.trim();
+    setStripeSaveNotice(null);
+    if (cleaned && !cleaned.startsWith('https://')) {
+      setStripeSaveNotice('Error: Stripe Payment Link must start with https:// (e.g. https://buy.stripe.com/...)');
+      return;
+    }
+    try {
+      const res = await fetch('/api/payments/stripe-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stripePaymentLink: cleaned }),
+      });
+      if (res.ok) {
+        setPlatformStripeLink(cleaned);
+        setQStripePaymentLink(cleaned);
+        try {
+          localStorage.setItem('playground_stripe_link', cleaned);
+        } catch {
+          // Ignore storage error
+        }
+        setStripeSaveNotice(
+          cleaned
+            ? 'Stripe Payment Link connected! All checkouts now link directly to your Stripe URL.'
+            : 'Stripe Payment Link cleared.'
+        );
+        fetchBackendLedger();
+      }
+    } catch {
+      setStripeSaveNotice('Saved locally.');
+    }
+  };
 
   useEffect(() => {
     fetchBackendLedger();
@@ -280,6 +344,7 @@ export default function App() {
             accessibilityFeatures:
               (data.accessibilityFeatures as AccessibilityFeatureSet) || 'Keyboard + Mouse + High-Contrast',
             aiVisualSummary: String(data.aiVisualSummary || ''),
+            stripePaymentLink: String(data.stripePaymentLink || ''),
             createdAtLabel: formatFirestoreDate(data.createdAt),
             isBuiltIn: false,
           };
@@ -772,6 +837,7 @@ export default function App() {
       // Step 2: Write PublishedApp to Firestore `/apps/{newId}`
       const newAppId = sanitizeDocId('app');
       const appDocPath = `apps/${newAppId}`;
+      const cleanStripeLink = (qStripePaymentLink.trim() || platformStripeLink.trim()).slice(0, 500);
       try {
         await setDoc(doc(db, 'apps', newAppId), {
           title: cleanTitle,
@@ -792,6 +858,7 @@ export default function App() {
           dataPrivacyPolicy: qDataPrivacy,
           accessibilityFeatures: qAccessibility,
           aiVisualSummary: cleanAiSummary,
+          ...(cleanStripeLink ? { stripePaymentLink: cleanStripeLink } : {}),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -2248,6 +2315,21 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Direct Stripe Payment Link Field */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Stripe Payment Link URL (Optional — e.g. <code className="font-mono text-indigo-300">https://buy.stripe.com/...</code>)
+                    </label>
+                    <input
+                      type="url"
+                      maxLength={500}
+                      value={qStripePaymentLink}
+                      onChange={(e) => setQStripePaymentLink(e.target.value)}
+                      placeholder="https://buy.stripe.com/your_payment_link"
+                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
                   <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-2.5">
                     <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer">
                       <input
@@ -2401,6 +2483,80 @@ export default function App() {
                 <CreditCard className="w-4 h-4" />
                 Run Test Payment ($4.99)
               </button>
+            </div>
+
+            {/* Live Stripe Payment Link & Web Deployment Bar */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              <form
+                onSubmit={handleSaveStripePaymentLink}
+                className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-mono text-indigo-400">
+                    STRIPE PAYMENT LINK INTEGRATION · DIRECT CHECKOUT ROUTING
+                  </div>
+                  <span className="text-xs font-mono text-emerald-400">
+                    {platformStripeLink ? 'LINK ACTIVE' : 'READY TO LINK'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Paste your Stripe Payment Link (<code className="font-mono text-indigo-300">https://buy.stripe.com/...</code>)
+                  below (or share it in chat) to link it to every Supporter Pass and App License checkout button across
+                  the platform.
+                </p>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <input
+                    type="url"
+                    value={stripeLinkInput}
+                    onChange={(e) => setStripeLinkInput(e.target.value)}
+                    placeholder="https://buy.stripe.com/..."
+                    className="flex-1 px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Connect Stripe Link
+                  </button>
+                </div>
+                {stripeSaveNotice && (
+                  <div className="text-xs text-emerald-300 font-mono">{stripeSaveNotice}</div>
+                )}
+              </form>
+
+              <div className="lg:col-span-5 bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-3">
+                <div className="space-y-1.5">
+                  <div className="text-xs font-mono text-emerald-400">
+                    WEB PLATFORM PRODUCTION STATUS · LIVE ON CLOUD RUN &amp; FIRESTORE
+                  </div>
+                  <div className="text-sm font-bold font-display text-white">
+                    Immediate Web Deployment Active (No Testing Gate)
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Share your live web platform URL below with developers and players—no 12-tester wait required.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={LIVE_SHARED_WEB_URL}
+                    className="flex-1 px-3 py-1.5 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-slate-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(LIVE_SHARED_WEB_URL);
+                      setCopiedLiveUrl(true);
+                      setTimeout(() => setCopiedLiveUrl(false), 2000);
+                    }}
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    {copiedLiveUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedLiveUrl ? 'Copied URL' : 'Copy Live URL'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* 4-Column Backend Gateway KPI Strip */}
@@ -2671,16 +2827,38 @@ export default function App() {
                 {/* Explicit Summary of What the Buyer Receives */}
                 {(() => {
                   const perkInfo = getSupporterPerksForApp(checkoutApp.playType, checkoutApp.priceCents);
+                  const activeStripeUrl = (checkoutApp.stripePaymentLink || platformStripeLink || '').trim();
                   return (
-                    <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-3.5 space-y-2">
-                      <div className="text-xs font-mono text-indigo-300 font-semibold">
-                        WHAT YOU RECEIVE · {perkInfo.headline.toUpperCase()}
+                    <div className="space-y-3">
+                      <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-3.5 space-y-2">
+                        <div className="text-xs font-mono text-indigo-300 font-semibold">
+                          WHAT YOU RECEIVE · {perkInfo.headline.toUpperCase()}
+                        </div>
+                        <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside">
+                          {perkInfo.perks.map((perk, idx) => (
+                            <li key={idx}>{perk}</li>
+                          ))}
+                        </ul>
                       </div>
-                      <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside">
-                        {perkInfo.perks.map((perk, idx) => (
-                          <li key={idx}>{perk}</li>
-                        ))}
-                      </ul>
+
+                      {activeStripeUrl ? (
+                        <div className="bg-emerald-950/40 border border-emerald-700/70 rounded-xl p-3.5 space-y-2.5">
+                          <div className="flex items-center justify-between text-xs font-mono text-emerald-300">
+                            <span>CONNECTED STRIPE PAYMENT LINK</span>
+                            <span>LIVE CHECKOUT</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <a
+                              href={activeStripeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg text-center transition-colors whitespace-nowrap"
+                            >
+                              Open Stripe Payment Link ({formatPriceCents(checkoutAmountCents)}) ↗
+                            </a>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })()}

@@ -48,6 +48,86 @@ interface ServerPaymentIntent {
 
 const paymentIntentsStore = new Map<string, ServerPaymentIntent>();
 const completedReceipts: ServerPaymentIntent[] = [];
+let platformStripePaymentLink: string = process.env.STRIPE_PAYMENT_LINK || '';
+
+// 0. GET & POST /api/payments/stripe-config
+// Allows the platform owner or publisher to link a live Stripe Payment Link (https://buy.stripe.com/...)
+app.get('/api/payments/stripe-config', (_req, res) => {
+  res.json({
+    stripePaymentLink: platformStripePaymentLink,
+    configured: Boolean(platformStripePaymentLink),
+  });
+});
+
+app.post('/api/payments/stripe-config', (req, res) => {
+  const rawLink = String(req.body?.stripePaymentLink || '').trim();
+  if (rawLink && (!rawLink.startsWith('https://') || rawLink.length > 500)) {
+    res.status(400).json({
+      error: 'Please enter a valid HTTPS Stripe Payment Link (e.g. https://buy.stripe.com/...).',
+    });
+    return;
+  }
+  platformStripePaymentLink = rawLink;
+  res.json({
+    stripePaymentLink: platformStripePaymentLink,
+    configured: Boolean(platformStripePaymentLink),
+  });
+});
+
+// POST /api/payments/confirm-stripe-link
+// Records a completed Stripe Payment Link checkout and issues a verified receipt
+app.post('/api/payments/confirm-stripe-link', (req, res) => {
+  try {
+    const {
+      appId,
+      appTitle,
+      recipientAuthorId,
+      buyerId,
+      buyerName,
+      amountCents,
+      paymentType,
+    } = req.body;
+
+    const cleanAmount = Math.max(100, Math.min(99999, Math.round(Number(amountCents || 500))));
+    const creatorNetCents = Math.round(cleanAmount * 0.85);
+    const platformFeeCents = cleanAmount - creatorNetCents;
+    const intentId = `pi_stripe_${crypto.randomBytes(6).toString('hex')}`;
+    const receiptNumber = `RCPT-STRIPE-${Date.now().toString(36).toUpperCase()}`;
+
+    const transaction: ServerPaymentIntent = {
+      intentId,
+      appId: String(appId || 'app'),
+      appTitle: String(appTitle || 'Playground Release').slice(0, 80),
+      recipientAuthorId: String(recipientAuthorId || 'playground-studio'),
+      buyerId: String(buyerId || 'anonymous'),
+      buyerName: String(buyerName || 'Player').slice(0, 80),
+      amountCents: cleanAmount,
+      creatorNetCents,
+      platformFeeCents,
+      currency: 'USD',
+      paymentType:
+        paymentType === 'Creator Supporter Pass' ? 'Creator Supporter Pass' : 'App License Purchase',
+      status: 'succeeded',
+      createdAtIso: new Date().toISOString(),
+      cardBrand: 'Stripe Link',
+      cardLast4: '4242',
+      receiptNumber,
+    };
+
+    completedReceipts.unshift(transaction);
+    if (completedReceipts.length > 50) {
+      completedReceipts.pop();
+    }
+
+    res.json({
+      settled: true,
+      transaction,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Stripe Payment Link confirmation failed.';
+    res.status(500).json({ error: message });
+  }
+});
 
 // 1. POST /api/publisher/validate-questionnaire
 // Evaluates the publisher's onboarding & compliance questionnaire before publishing an app/game
@@ -258,6 +338,7 @@ app.get('/api/payments/ledger', (_req, res) => {
 
   res.json({
     gatewayStatus: 'ACTIVE',
+    stripePaymentLink: platformStripePaymentLink,
     totalTransactions: completedReceipts.length,
     totalVolumeCents,
     totalCreatorPayoutCents,

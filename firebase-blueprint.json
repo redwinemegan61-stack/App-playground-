@@ -104,6 +104,11 @@
           "description": "Gemini 4 Argon visual analysis or code diagnostic summary attached to the release.",
           "maxLength": 1000
         },
+        "stripePaymentLink": {
+          "type": "string",
+          "description": "Optional Stripe Payment Link URL (e.g. https://buy.stripe.com/...) for live Stripe checkout.",
+          "maxLength": 500
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

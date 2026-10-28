@@ -49,7 +49,7 @@ service cloud.firestore {
         'externalUrl', 'version', 'authorId', 'authorName', 'isPublic',
         'playsCount', 'likesCount', 'priceCents', 'monetizationModel',
         'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures',
-        'aiVisualSummary', 'createdAt', 'updatedAt'
+        'aiVisualSummary', 'stripePaymentLink', 'createdAt', 'updatedAt'
       ]) &&
       data.title is string && data.title.size() >= 2 && data.title.size() <= 80 &&
       data.tagline is string && data.tagline.size() >= 4 && data.tagline.size() <= 140 &&
@@ -76,6 +76,7 @@ service cloud.firestore {
       data.accessibilityFeatures is string && data.accessibilityFeatures.size() <= 64 &&
       data.accessibilityFeatures in ['Keyboard + Mouse + High-Contrast', 'Touch + Screen Reader Friendly', 'Full Controller + Audio Cues'] &&
       data.aiVisualSummary is string && data.aiVisualSummary.size() <= 1000 &&
+      (!('stripePaymentLink' in data) || (data.stripePaymentLink is string && data.stripePaymentLink.size() <= 500)) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -92,7 +93,7 @@ service cloud.firestore {
       data.appId.matches('^[a-zA-Z0-9_\\-]+$') &&
       data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
       data.authorId.matches('^[a-zA-Z0-9_\\-]+$') &&
-      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
       data.rating is int && data.rating >= 1 && data.rating <= 5 &&
       data.comment is string && data.comment.size() >= 2 && data.comment.size() <= 600 &&
       data.createdAt is timestamp;
@@ -213,7 +214,7 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'tagline', 'description', 'category', 'playType',
               'externalUrl', 'version', 'isPublic', 'priceCents', 'monetizationModel',
-              'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures', 'aiVisualSummary', 'updatedAt'
+              'ageRating', 'dataPrivacyPolicy', 'accessibilityFeatures', 'aiVisualSummary', 'stripePaymentLink', 'updatedAt'
             ])
           ) ||
           // Action 2: Community increments play counter by 1
