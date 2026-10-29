@@ -4,6 +4,15 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
+import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
+import {
+  getOrCreateUser,
+  recordQuestionnaireInSql,
+  recordPublishedAppInSql,
+  updateReviewStatusInSql,
+  recordPaymentInSql,
+  getUserQuestionnairesFromSql,
+} from './src/db/users.ts';
 
 dotenv.config();
 
@@ -485,6 +494,136 @@ app.post('/api/analyze-image', async (req, res) => {
   } catch (error: unknown) {
     console.error('Gemini 4 Argon image analysis error:', error);
     const message = error instanceof Error ? error.message : 'Failed to analyze image with Gemini 4 Argon';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 6. POST /api/auth/sync
+// Synchronizes the authenticated Firebase user into Cloud SQL users table
+app.post('/api/auth/sync', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user?.uid;
+    const email = req.user?.email || '';
+    const displayName = req.body?.displayName || req.user?.name || '';
+    if (!uid || !email) {
+      res.status(400).json({ error: 'Invalid user token claims.' });
+      return;
+    }
+    const dbUser = await getOrCreateUser(uid, email, displayName);
+    res.json({ user: dbUser });
+  } catch (error: unknown) {
+    console.error('Failed to sync user:', error);
+    const message = error instanceof Error ? error.message : 'Failed to sync user';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 7. POST /api/publisher/sync-sql
+// Records publisher safety questionnaire and optional published app in Cloud SQL
+app.post('/api/publisher/sync-sql', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user?.uid;
+    const email = req.user?.email || '';
+    if (!uid || !email) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const isOwnerAdmin = email.toLowerCase() === 'redwinemegan61@gmail.com';
+    const { questionnaire, publishedApp } = req.body;
+
+    let savedQuestionnaire = null;
+    if (questionnaire) {
+      savedQuestionnaire = await recordQuestionnaireInSql(uid, email, {
+        ...questionnaire,
+        reviewStatus: isOwnerAdmin ? 'approved' : 'pending',
+      });
+    }
+
+    let savedApp = null;
+    if (publishedApp) {
+      savedApp = await recordPublishedAppInSql(uid, email, {
+        ...publishedApp,
+        isPublic: isOwnerAdmin ? true : false,
+        reviewStatus: isOwnerAdmin ? 'approved' : 'pending',
+      });
+    }
+
+    res.json({ questionnaire: savedQuestionnaire, publishedApp: savedApp });
+  } catch (error: unknown) {
+    console.error('Failed to sync publisher submission:', error);
+    const message = error instanceof Error ? error.message : 'Failed to sync publisher submission';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 8. POST /api/publisher/review-decision
+// Strictly restricted to platform owner (redwinemegan61@gmail.com) to approve or deny questionnaires & apps
+app.post('/api/publisher/review-decision', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const email = req.user?.email || '';
+    if (email.toLowerCase() !== 'redwinemegan61@gmail.com') {
+      res.status(403).json({
+        error: 'Forbidden: Only the platform owner (redwinemegan61@gmail.com) can approve or deny submissions.',
+      });
+      return;
+    }
+
+    const { questionnaireDocId, appDocId, decision, adminReviewNotes } = req.body;
+    if (!questionnaireDocId || (decision !== 'approved' && decision !== 'denied')) {
+      res.status(400).json({ error: 'Invalid review decision payload.' });
+      return;
+    }
+
+    const result = await updateReviewStatusInSql(
+      String(questionnaireDocId),
+      String(appDocId || ''),
+      decision,
+      String(adminReviewNotes || '')
+    );
+    res.json(result);
+  } catch (error: unknown) {
+    console.error('Failed to update review decision:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update review decision';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 9. GET /api/publisher/questionnaires
+// Returns questionnaires for the signed-in user (or all questionnaires for redwinemegan61@gmail.com)
+app.get('/api/publisher/questionnaires', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user?.uid;
+    const email = req.user?.email || '';
+    if (!uid) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const isOwnerAdmin = email.toLowerCase() === 'redwinemegan61@gmail.com';
+    const items = await getUserQuestionnairesFromSql(uid, isOwnerAdmin);
+    res.json({ questionnaires: items });
+  } catch (error: unknown) {
+    console.error('Failed to fetch questionnaires:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch questionnaires';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 10. POST /api/payments/sync-sql
+// Synchronizes a settled payment receipt into Cloud SQL payment_transactions table
+app.post('/api/payments/sync-sql', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const uid = req.user?.uid;
+    const email = req.user?.email || '';
+    if (!uid || !email) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const saved = await recordPaymentInSql(uid, email, req.body);
+    res.json({ transaction: saved });
+  } catch (error: unknown) {
+    console.error('Failed to sync payment to database:', error);
+    const message = error instanceof Error ? error.message : 'Failed to sync payment';
     res.status(500).json({ error: message });
   }
 });

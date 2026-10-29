@@ -140,6 +140,7 @@ const LIVE_SHARED_WEB_URL =
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
 
   const isOwnerAdmin = Boolean(
@@ -354,9 +355,9 @@ export default function App() {
     fetchBackendLedger();
   }, [fetchBackendLedger]);
 
-  // 1. Track Firebase Auth state
+  // 1. Track Firebase Auth state and sync user to Cloud SQL
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (currentUser) => {
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser?.displayName) {
         setQStudioName((prev) => prev || `${currentUser.displayName} Studio`);
@@ -364,6 +365,26 @@ export default function App() {
       }
       if (currentUser?.email) {
         setQSupportContact((prev) => prev || currentUser.email || '');
+      }
+      if (currentUser) {
+        try {
+          const token = await currentUser.getIdToken();
+          setAuthToken(token);
+          await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              displayName: currentUser.displayName || '',
+            }),
+          });
+        } catch {
+          // Ignore transient sync error
+        }
+      } else {
+        setAuthToken(null);
       }
       setAuthReady(true);
     });
@@ -812,6 +833,34 @@ export default function App() {
         } catch (err) {
           handleFirestoreError(err, OperationType.CREATE, paymentPath);
         }
+
+        try {
+          const token = authToken || (await user.getIdToken());
+          await fetch('/api/payments/sync-sql', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              receiptNumber: String(settled.receiptNumber),
+              intentId: String(intentData.intent.intentId),
+              appDocId: checkoutApp.id,
+              appTitle: checkoutApp.title.slice(0, 80),
+              recipientAuthorId: checkoutApp.authorId,
+              buyerName: (user.displayName || cardholderName.trim() || 'Player').slice(0, 80),
+              amountCents: Number(settled.amountCents),
+              creatorNetCents: Number(settled.creatorNetCents),
+              platformFeeCents: Number(settled.platformFeeCents),
+              currency: 'USD',
+              paymentType: checkoutType,
+              cardBrand: String(settled.cardBrand || 'Visa'),
+              cardLast4: String(settled.cardLast4 || '4242'),
+            }),
+          });
+        } catch {
+          // Ignore transient SQL sync error
+        }
       }
 
       if (checkoutType === 'Publisher Upload Fee ($0.99)') {
@@ -927,6 +976,27 @@ export default function App() {
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `publisherQuestionnaires/${quest.id}`);
+    }
+
+    if (user) {
+      try {
+        const token = authToken || (await user.getIdToken());
+        await fetch('/api/publisher/review-decision', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            questionnaireDocId: quest.id,
+            appDocId: quest.appId,
+            decision,
+            adminReviewNotes: notes,
+          }),
+        });
+      } catch {
+        // Ignore transient SQL sync error
+      }
     }
 
     setReviewActionStatus(
@@ -1183,6 +1253,72 @@ export default function App() {
         });
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, questDocPath);
+      }
+
+      try {
+        const token = authToken || (await user.getIdToken());
+        await fetch('/api/publisher/sync-sql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            questionnaire: {
+              questionnaireDocId: questId,
+              appDocId: newAppId,
+              studioName: cleanStudio,
+              supportContact: cleanSupport,
+              ageRating: qAgeRating,
+              contentAdvisory: qContentAdvisory,
+              violenceLevel: qViolenceLevel,
+              fearLevel: qFearLevel,
+              languageLevel: qLanguageLevel,
+              substancesLevel: qSubstancesLevel,
+              gamblingThemes: qGamblingThemes,
+              userInteraction: qUserInteraction,
+              generalSafetyStandards: qGeneralSafetyStandards,
+              dataPrivacyPolicy: qDataPrivacy,
+              accessibilityFeatures: qAccessibility,
+              monetizationModel: qMonetization,
+              priceCents: computedPriceCents,
+              payoutMethod: qPayoutMethod,
+              stripePaymentLink: cleanStripeLink,
+              testedInBrowserSandbox: qTestedSandbox,
+              acceptedPublisherTerms: qAcceptedTerms,
+              complianceCertificateId: certId,
+            },
+            publishedApp: {
+              appDocId: newAppId,
+              authorName: cleanStudio,
+              title: cleanTitle,
+              tagline: cleanTagline,
+              description: cleanDesc,
+              category: pubCategory,
+              playType: pubPlayType,
+              version: cleanVersion,
+              externalUrl: cleanUrl,
+              priceCents: computedPriceCents,
+              monetizationModel: qMonetization,
+              ageRating: qAgeRating,
+              contentAdvisory: qContentAdvisory,
+              violenceLevel: qViolenceLevel,
+              fearLevel: qFearLevel,
+              languageLevel: qLanguageLevel,
+              substancesLevel: qSubstancesLevel,
+              gamblingThemes: qGamblingThemes,
+              userInteraction: qUserInteraction,
+              generalSafetyStandards: qGeneralSafetyStandards,
+              dataPrivacyPolicy: qDataPrivacy,
+              accessibilityFeatures: qAccessibility,
+              payoutMethod: qPayoutMethod,
+              stripePaymentLink: cleanStripeLink,
+              complianceCertificateId: certId,
+            },
+          }),
+        });
+      } catch {
+        // Ignore transient SQL sync error
       }
 
       setUploadFeePaid(false);
