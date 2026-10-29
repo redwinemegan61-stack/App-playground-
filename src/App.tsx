@@ -79,6 +79,7 @@ import {
 } from './data/defaultApps';
 import { ArtworkCover } from './components/ArtworkCover';
 import { PlayableStage } from './components/PlayableExperiences';
+import { PublisherRatingsDashboard } from './components/PublisherRatingsDashboard';
 
 type ActiveSection = 'discover' | 'stage' | 'vision' | 'publish' | 'payments';
 
@@ -1678,13 +1679,15 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="lg:col-span-5 flex flex-col justify-between bg-[#0B0F17] border border-slate-800 rounded-xl overflow-hidden">
-                <ArtworkCover
-                  playType="starlight-tactics"
-                  category="Game"
-                  title="Starlight Tactics: Sector Zero"
-                  className="h-56 lg:h-full w-full"
-                />
+              <div className="lg:col-span-5 group flex flex-col justify-between bg-[#0B0F17] border border-slate-800 hover:border-indigo-500/50 rounded-xl overflow-hidden transition-all duration-300 ease-out transform-gpu hover:scale-[1.015] hover:-translate-y-0.5 shadow-md shadow-black/40 hover:shadow-2xl hover:shadow-indigo-950/60 motion-reduce:transform-none">
+                <div className="overflow-hidden h-56 lg:h-full w-full">
+                  <ArtworkCover
+                    playType="starlight-tactics"
+                    category="Game"
+                    title="Starlight Tactics: Sector Zero"
+                    className="h-full w-full transition-transform duration-500 ease-out group-hover:scale-105 motion-reduce:transform-none"
+                  />
+                </div>
                 <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-xs text-slate-400 truncate font-mono tabular-nums">
@@ -1878,19 +1881,19 @@ export default function App() {
                     return (
                       <article
                         key={appItem.id}
-                        className="group bg-[#111827] border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden flex flex-col justify-between transition-transform duration-150 hover:-translate-y-0.5"
+                        className="group bg-[#111827] border border-slate-800 hover:border-indigo-500/60 rounded-xl overflow-hidden flex flex-col justify-between transition-all duration-300 ease-out transform-gpu hover:scale-[1.025] hover:-translate-y-1.5 shadow-md shadow-black/40 hover:shadow-2xl hover:shadow-indigo-950/70 motion-reduce:transform-none"
                       >
                         <div>
                           {/* Card Artwork */}
                           <div
                             onClick={() => handleLaunchApp(appItem)}
-                            className="cursor-pointer border-b border-slate-800/80"
+                            className="cursor-pointer border-b border-slate-800/80 overflow-hidden"
                           >
                             <ArtworkCover
                               playType={appItem.playType}
                               category={appItem.category}
                               title={appItem.title}
-                              className="h-48 w-full"
+                              className="h-48 w-full transition-transform duration-500 ease-out group-hover:scale-105 motion-reduce:transform-none"
                             />
                           </div>
 
@@ -2630,6 +2633,18 @@ export default function App() {
               </div>
             )}
 
+            {/* REAL-TIME PLAYER FEEDBACK & STAR RATING DISTRIBUTION DASHBOARD (RECHARTS · 100% REAL FIRESTORE DATA) */}
+            <PublisherRatingsDashboard
+              userUid={user?.uid || null}
+              isOwnerAdmin={isOwnerAdmin}
+              mySubmittedApps={mySubmittedApps}
+              adminAllApps={adminAllApps}
+              communityApps={communityApps}
+              onOpenAppInStage={(appItem) => {
+                handleLaunchApp(appItem);
+              }}
+            />
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Main Publishing + Questionnaire Form */}
               <form
@@ -3211,7 +3226,7 @@ export default function App() {
                 </div>
 
                 {/* Live Storefront Card Preview */}
-                <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
+                <div className="group bg-[#111827] border border-slate-800 hover:border-indigo-500/60 rounded-xl overflow-hidden transition-all duration-300 ease-out transform-gpu hover:scale-[1.02] hover:-translate-y-1 shadow-md shadow-black/40 hover:shadow-2xl hover:shadow-indigo-950/60 motion-reduce:transform-none">
                   <div className="px-4 py-2.5 border-b border-slate-800 text-xs font-mono text-slate-400 flex items-center justify-between">
                     <span>LIVE STOREFRONT CARD PREVIEW</span>
                     <span>
@@ -3220,12 +3235,14 @@ export default function App() {
                         : `$${(parseFloat(qPriceDollars || '0') || 0).toFixed(2)}`}
                     </span>
                   </div>
-                  <ArtworkCover
-                    playType={pubPlayType}
-                    category={pubCategory}
-                    title={pubTitle || 'Your App Title'}
-                    className="h-44 w-full"
-                  />
+                  <div className="overflow-hidden">
+                    <ArtworkCover
+                      playType={pubPlayType}
+                      category={pubCategory}
+                      title={pubTitle || 'Your App Title'}
+                      className="h-44 w-full transition-transform duration-500 ease-out group-hover:scale-105 motion-reduce:transform-none"
+                    />
+                  </div>
                   <div className="p-5 space-y-2">
                     <div className="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums">
                       <span>
