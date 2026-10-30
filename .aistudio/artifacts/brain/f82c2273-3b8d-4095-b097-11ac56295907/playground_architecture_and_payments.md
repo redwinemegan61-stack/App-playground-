@@ -1,71 +1,77 @@
-# App and Game Playground — Architecture, Payments & Publisher Questionnaire Guide
+# App and Game Playground — Architecture, Owner Revenue & Publishing Guide
 
-## 1. Platform Overview
+## 1. Platform Revenue & Business Architecture
 
-**App and Game Playground** is a full-stack publishing platform, interactive browser arcade, and visual debugging studio powered by Express, Firebase Firestore, and `gemini-4-argon`.
+**App and Game Playground** is owned and administered by **Megan** (`redwinemegan61@gmail.com`).
+
+The business model is simple, transparent, and eliminates payout accounting overhead:
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                        App and Game Playground (Client)                        │
-│                                                                                │
-│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐  │
-│  │ Discover & Arcade    │  │ Publisher Studio &   │  │ Payments & Checkout  │  │
-│  │ • Starlight Tactics  │  │ Questionnaire        │  │ • License Purchase   │  │
-│  │ • PulsePad Synth Lab │  │ • Age & Content      │  │ • Supporter Passes   │  │
-│  │ • Botanica Word Game │  │ • Privacy & A11y     │  │ • 85% / 15% Split    │  │
-│  │ • PatchForge Vision  │  │ • Pricing & Payouts  │  │ • Official Receipts  │  │
-│  └──────────┬───────────┘  └──────────┬───────────┘  └──────────┬───────────┘  │
-└─────────────┼─────────────────────────┼─────────────────────────┼──────────────┘
-              │                         │                         │
-              ▼                         ▼                         ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                         Express Backend Server (server.ts)                     │
-│                                                                                │
-│  • POST /api/publisher/validate-questionnaire -> Issues CERT-PG-* Certificate  │
-│  • POST /api/payments/create-intent           -> Computes 85/15 Split Intent   │
-│  • POST /api/payments/execute                 -> Authorizes & Issues RCPT-*    │
-│  • GET  /api/payments/ledger                  -> Real-Time Gateway Telemetry   │
-│  • POST /api/analyze-image                    -> Gemini 4 Argon Vision Engine  │
-└───────────────────────────────────────┬────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│             Firebase Firestore (ai-studio-f82c2273-3b8d-4095-b097-...)         │
-│                                                                                │
-│  • /apps/{appId}                              (Public Storefront Catalog)      │
-│  • /apps/{appId}/reviews/{reviewId}           (Verified Community Ratings)     │
-│  • /publisherQuestionnaires/{questionnaireId} (Compliance & Payout Records)    │
-│  • /payments/{paymentId}                      (Immutable Transaction Ledger)   │
-└────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              REVENUE FLOWS (100% TO OWNER)                             │
+│                                                                                        │
+│   1. External Developer App Uploads ($0.99 Flat Fee)                                   │
+│      Outside creator uploads their custom web app / build ───► $0.99 ───► Megan (100%) │
+│                                                                                        │
+│   2. Developer AI Studio Passes ($3.00 / $5.00 Passes)                                 │
+│      Creator uses Gemini 4 Argon visual diagnostics & code ──► $3.00 ───► Megan (100%) │
+│                                                                                        │
+│   3. Platform Owner Publishing Privilege                                               │
+│      Megan (redwinemegan61@gmail.com) uploads her apps ──────► $0.00 (100% Waived)    │
+│                                                                                        │
+│   4. External Indie Creator In-App Monetization                                       │
+│      Indie developer optionally links their own Stripe link ──► 100% Direct to Creator  │
+│      (Platform does not intermediate creator payouts or tax withholding)               │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Publisher Onboarding Questionnaire (11-Point Vetting)
+## 2. Who is the "Developer" Receiving Payouts?
 
-Every creator adding a new app or game completes the mandatory **Publisher Questionnaire** in the **Publisher Studio**:
-
-1. **Studio or Publisher Name** (`2–80` characters)
-2. **Player Support Contact** (Verified email or support URL)
-3. **Target Age Rating** (`Everyone (E)`, `Everyone 10+ (E10+)`, `Teen (T)`, `Mature 17+ (M)`)
-4. **Action / Combat Content Advisory** (`None`, `Mild Cartoon / Tactical`, `Moderate`)
-   - *Backend Validation Rule*: Selecting `Everyone (E)` with `Moderate` combat is automatically flagged and rejected by `/api/publisher/validate-questionnaire`.
-5. **Data Privacy & Telemetry Declaration** (`Zero Data Collected`, `Anonymous Gameplay Telemetry Only`, `Authenticated Account Sync`)
-6. **Accessibility & Input Features** (`Keyboard + Mouse + High-Contrast`, `Touch + Screen Reader Friendly`, `Full Controller + Audio Cues`)
-7. **Monetization Model** (`Free to Play`, `One-Time Purchase`, `Creator Supporter Pass`)
-8. **License Price (USD)** (`$0.00` for Free to Play, or `$1.00–$999.99` for commercial builds)
-9. **Creator Payout Rail** (`Stripe Connect Express (85% Creator / 15% Platform)`, `Instant Card Payout`, `Open-Source Community Grant`)
-10. **Browser Sandbox Verification Attestation** (`testedOfflineAndSandbox == true`)
-11. **Publisher Distribution & 85/15 Revenue Share Agreement** (`acceptedPublisherTerms == true`)
-
-When verified, the backend issues a unique `CERT-PG-YYYY-XXXX` Compliance Certificate ID that is stored alongside the questionnaire in Firestore (`/publisherQuestionnaires/{questionnaireId}`).
+- **There are NO platform payouts owed to outside developers.**
+- Outside developers are **paying customers** of your platform: they pay you **$0.99** to have their app reviewed, certified with Google Play–style safety standards, and listed in your public Play Store catalog.
+- If outside creators want players to tip them or buy their games, they link their **own personal Stripe payment link** on their game cards. Players pay them directly on their own link.
+- **All money collected by your platform Stripe account ($0.99 upload fees and $3.00/$5.00 Developer AI Studio Passes) belongs 100% to you (Megan).**
 
 ---
 
-## 3. Backend Payment Processing & 85/15 Revenue Split
+## 3. The Developer AI Studio Pass
 
-The Express payment engine (`server.ts`) provides three dedicated endpoints:
+- Creators who do not have their own development pipeline or who need assistance debugging, designing HUDs, fixing Python/JavaScript errors, or auto-generating store descriptions can purchase a **Developer AI Studio Pass** ($3.00 standard or $5.00 pro).
+- This unlocks:
+  - **Gemini 4 Argon Multimodal Vision Analyzer**: Upload screenshots to inspect UI contrast, visual layout, and gameplay elements.
+  - **Issue #3060 Automated Code Patch Generator**: Generate downloadable unified `.patch` git diffs for browser engines.
+  - **1-Click Publisher Listing Auto-Fill**: Auto-generate game titles, taglines, categories, and controls from a single screenshot.
+- **100% of Developer AI Studio Pass proceeds go directly to Megan.**
 
-- **`POST /api/payments/create-intent`**: Validates the transaction amount (`100` to `99999` cents), calculates the exact **85% Creator Net Share** (`creatorNetCents`) and **15% Platform Infrastructure Fee** (`platformFeeCents`), and initializes a `pi_pg_*` payment intent.
-- **`POST /api/payments/execute`**: Validates cardholder details, card number, `MM/YY` expiration, and security code, settles the payment intent, and issues a timestamped receipt (`RCPT-*`).
-- **`GET /api/payments/ledger`**: Aggregates gross transaction volume, net creator payouts, and recent settled receipts for the **Payments & Ledger** dashboard.
+---
+
+## 4. Google Play Store–Style Content Rating & Safety Questionnaire
+
+Every application uploaded to the store must complete the 16-point safety questionnaire:
+1. Studio or Publisher Name
+2. Player Support Contact
+3. Calculated Google Play Age Rating (`Everyone (E)`, `Everyone 10+ (E10+)`, `Teen (T)`, `Mature 17+ (M)`)
+4. Summary Content Advisory (`None`, `Mild Cartoon / Tactical`, `Moderate`)
+5. Violence / Combat Disclosures
+6. Fear / Horror Disclosures
+7. Explicit Language / Profanity Disclosures
+8. Controlled Substances Disclosures
+9. Gambling / Paid Loot Box Disclosures
+10. Online User-to-User Interaction Disclosures
+11. Data Privacy Policy (`Zero Data Collected`, `Anonymous Gameplay Telemetry Only`, `Authenticated Account Sync`)
+12. Accessibility & Input Features (`Keyboard + Mouse`, `Touch`, `Controller`)
+13. Monetization Model (`Free to Play`, `One-Time Purchase`, `Creator Supporter Pass`)
+14. General Safety Standards Attestation (No malware, phishing, deceptive behavior)
+15. Browser Sandbox Attestation
+16. Publisher Distribution Agreement (Flat $0.99 upload fee paid to owner, optional direct creator tip link, exclusive review by `redwinemegan61@gmail.com`)
+
+---
+
+## 5. Exclusive Owner Review & Approval Gate
+
+- All submissions are locked upon completion with `reviewStatus = "pending"`.
+- Only `redwinemegan61@gmail.com` (authenticated with verified email) can approve or deny apps.
+- Denied apps remain private and are hidden from the store.
+- Approved apps immediately appear in the live Play Store catalog for all visitors.

@@ -68,9 +68,9 @@ export type AccessibilityFeatureSet =
   | 'Full Controller + Audio Cues';
 
 export type PayoutMethod =
-  | 'Stripe Connect Express (85% Creator / 15% Platform)'
-  | 'Instant Card Payout'
-  | 'Open-Source Community Grant';
+  | 'Direct External Stripe Link (Zero Platform Cut)'
+  | 'Free / Open-Source (No Monetization)'
+  | 'Platform Pass & Host Listing';
 
 export interface PlaygroundAppItem {
   id: string;
@@ -120,7 +120,11 @@ export interface PaymentRecordItem {
   creatorNetCents: number;
   platformFeeCents: number;
   currency: string;
-  paymentType: 'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)';
+  paymentType:
+    | 'App License Purchase'
+    | 'Creator Supporter Pass'
+    | 'Publisher Upload Fee ($0.99)'
+    | 'Developer AI Studio Pass';
   cardBrand: string;
   cardLast4: string;
   receiptNumber: string;
@@ -200,7 +204,15 @@ export interface GeminiImageAnalysisResult {
   generatedPatch: string;
 }
 
-export function formatPriceCents(cents: number): string {
+export function formatCurrencyCents(cents: number): string {
+  const safe = Number(cents) || 0;
+  return `$${(safe / 100).toFixed(2)}`;
+}
+
+export function formatPriceCents(cents: number, model?: MonetizationModel): string {
+  if (model === 'Creator Supporter Pass') {
+    return cents > 0 ? `Free (Pass: $${(cents / 100).toFixed(2)})` : 'Free to Play · Optional Pass';
+  }
   if (!cents || cents <= 0) return 'Free';
   return `$${(cents / 100).toFixed(2)}`;
 }

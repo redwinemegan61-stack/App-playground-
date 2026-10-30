@@ -75,11 +75,13 @@ import {
   calculateGooglePlayRating,
   createSampleDiagnosticImage,
   formatPriceCents,
+  formatCurrencyCents,
   getSupporterPerksForApp,
 } from './data/defaultApps';
 import { ArtworkCover } from './components/ArtworkCover';
 import { PlayableStage } from './components/PlayableExperiences';
 import { PublisherRatingsDashboard } from './components/PublisherRatingsDashboard';
+import { StorefrontAppDetailsModal } from './components/StorefrontAppDetailsModal';
 
 type ActiveSection = 'discover' | 'stage' | 'vision' | 'publish' | 'payments';
 
@@ -118,6 +120,8 @@ interface BackendLedgerSummary {
   totalVolumeCents: number;
   totalCreatorPayoutCents: number;
   totalPlatformFeeCents: number;
+  totalUploadFeesCents?: number;
+  totalDeveloperPassCents?: number;
   recentReceipts: Array<{
     intentId: string;
     appId: string;
@@ -202,7 +206,7 @@ export default function App() {
   const [qMonetization, setQMonetization] = useState<MonetizationModel>('Free to Play');
   const [qPriceDollars, setQPriceDollars] = useState<string>('0.00');
   const [qPayoutMethod, setQPayoutMethod] = useState<PayoutMethod>(
-    'Stripe Connect Express (85% Creator / 15% Platform)'
+    'Direct External Stripe Link (Zero Platform Cut)'
   );
   const [qStripePaymentLink, setQStripePaymentLink] = useState<string>(() => {
     try {
@@ -236,6 +240,8 @@ export default function App() {
   const [pubStatusMessage, setPubStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
   const [uploadFeePaid, setUploadFeePaid] = useState<boolean>(false);
+  const [storeModalApp, setStoreModalApp] = useState<PlaygroundAppItem | null>(null);
+  const [publishDeploymentTier, setPublishDeploymentTier] = useState<'free-community' | 'commercial-standard'>('free-community');
 
   // Automatically sync Google Play Age Rating & Content Advisory when content rating disclosures change
   useEffect(() => {
@@ -268,7 +274,7 @@ export default function App() {
   const [checkoutApp, setCheckoutApp] = useState<PlaygroundAppItem | null>(null);
   const [checkoutAmountCents, setCheckoutAmountCents] = useState<number>(99);
   const [checkoutType, setCheckoutType] = useState<
-    'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)'
+    'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)' | 'Developer AI Studio Pass'
   >('Publisher Upload Fee ($0.99)');
   const [cardholderName, setCardholderName] = useState<string>('');
   const [cardNumber, setCardNumber] = useState<string>('');
@@ -525,9 +531,11 @@ export default function App() {
             paymentType:
               data.paymentType === 'Publisher Upload Fee ($0.99)'
                 ? 'Publisher Upload Fee ($0.99)'
-                : data.paymentType === 'Creator Supporter Pass'
-                  ? 'Creator Supporter Pass'
-                  : 'App License Purchase',
+                : data.paymentType === 'Developer AI Studio Pass'
+                  ? 'Developer AI Studio Pass'
+                  : data.paymentType === 'Creator Supporter Pass'
+                    ? 'Creator Supporter Pass'
+                    : 'App License Purchase',
             cardBrand: String(data.cardBrand || 'Visa'),
             cardLast4: String(data.cardLast4 || '4242'),
             receiptNumber: String(data.receiptNumber || ''),
@@ -563,9 +571,11 @@ export default function App() {
             paymentType:
               data.paymentType === 'Publisher Upload Fee ($0.99)'
                 ? 'Publisher Upload Fee ($0.99)'
-                : data.paymentType === 'Creator Supporter Pass'
-                  ? 'Creator Supporter Pass'
-                  : 'App License Purchase',
+                : data.paymentType === 'Developer AI Studio Pass'
+                  ? 'Developer AI Studio Pass'
+                  : data.paymentType === 'Creator Supporter Pass'
+                    ? 'Creator Supporter Pass'
+                    : 'App License Purchase',
             cardBrand: String(data.cardBrand || 'Visa'),
             cardLast4: String(data.cardLast4 || '4242'),
             receiptNumber: String(data.receiptNumber || ''),
@@ -760,6 +770,39 @@ export default function App() {
     setCheckoutType('Publisher Upload Fee ($0.99)');
   };
 
+  // Open Checkout Modal specifically for the Developer AI Studio Pass ($3.00)
+  const handleOpenDeveloperPassCheckout = () => {
+    const devPassListing: PlaygroundAppItem = {
+      id: 'developer-ai-studio-pass',
+      title: 'Developer AI Studio Pass ($3.00)',
+      tagline: 'Full access to Gemini 4 Argon visual analysis, Python Issue #3060 code generator, and publisher auto-fill.',
+      description: 'Provides indie developers full access to the AI creation, visual diagnostics, and patch generators. 100% of pass fees go to the platform owner.',
+      category: 'Developer Tool',
+      playType: 'patchforge-vision',
+      externalUrl: '',
+      version: '2026.4',
+      authorId: 'playground-platform',
+      authorName: 'App and Game Playground Platform',
+      isPublic: true,
+      playsCount: 0,
+      likesCount: 0,
+      priceCents: 300,
+      monetizationModel: 'Creator Supporter Pass',
+      ageRating: 'Everyone (E)',
+      dataPrivacyPolicy: 'Zero Data Collected',
+      accessibilityFeatures: 'Keyboard + Mouse + High-Contrast',
+      aiVisualSummary: 'Developer AI Studio Pass for visual diagnostic inspection and patch generation.',
+      stripePaymentLink: platformStripeLink,
+      createdAtLabel: 'Today',
+      isBuiltIn: true,
+    };
+    setCheckoutApp(devPassListing);
+    setPaymentError(null);
+    setSettledReceipt(null);
+    setCheckoutAmountCents(300);
+    setCheckoutType('Developer AI Studio Pass');
+  };
+
   // Execute Backend Payment Flow (/api/payments/create-intent -> /api/payments/execute -> Firestore /payments)
   const handleRunPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -866,6 +909,8 @@ export default function App() {
 
       if (checkoutType === 'Publisher Upload Fee ($0.99)') {
         setUploadFeePaid(true);
+      } else if (checkoutType === 'Developer AI Studio Pass') {
+        setUnlockedAppIds((prev) => Array.from(new Set([...prev, 'developer-ai-studio-pass', checkoutApp.id])));
       } else {
         setUnlockedAppIds((prev) => Array.from(new Set([...prev, checkoutApp.id])));
       }
@@ -1148,8 +1193,14 @@ export default function App() {
       const appDocPath = `apps/${newAppId}`;
       const cleanStripeLink = (qStripePaymentLink.trim() || platformStripeLink.trim()).slice(0, 500);
 
-      // Step 2A: Settle the $0.99 (99 cents) Customer App Upload Fee if not already pre-paid in the modal
-      if (!uploadFeePaid) {
+      // Step 2A: Settle the $0.99 (99 cents) Customer App Upload Fee IF NOT Owner and NOT Free Community
+      const isOwnerFreePublish = isOwnerAdmin;
+      const isFreePublishChoice =
+        isOwnerFreePublish ||
+        publishDeploymentTier === 'free-community' ||
+        qMonetization === 'Free to Play';
+
+      if (!isFreePublishChoice && !uploadFeePaid) {
         const feeRes = await fetch('/api/payments/confirm-stripe-link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1332,8 +1383,10 @@ export default function App() {
       setPubStatusMessage({
         type: 'success',
         text: isOwnerAdmin
-          ? `Published "${cleanTitle}" (${certId}) directly to the Play Store as Platform Owner!`
-          : `Submitted "${cleanTitle}" (${certId})! Your Google Play safety questionnaire has been routed exclusively to the Platform Owner (${OWNER_ADMIN_EMAIL}) for review and approval.`,
+          ? `Published "${cleanTitle}" (${certId}) 100% Free as Platform Owner directly to the Play Store catalog!`
+          : isFreePublishChoice
+            ? `Submitted "${cleanTitle}" (${certId}) 100% Free for Owner Review! Your submission has been routed to the Platform Owner (${OWNER_ADMIN_EMAIL}) for review and approval.`
+            : `Submitted "${cleanTitle}" (${certId})! Your Google Play safety questionnaire has been routed exclusively to the Platform Owner (${OWNER_ADMIN_EMAIL}) for review and approval.`,
       });
       setSelectedAppId(newAppId);
     } catch (err: unknown) {
@@ -1465,401 +1518,284 @@ export default function App() {
   const pendingAdminReviewsCount = adminQuestionnaires.filter((q) => q.reviewStatus === 'pending').length;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0B0F17] text-[#F8FAFC]">
+    <div className="min-h-screen bg-[#0b0c0e] text-[#e0e2e5] font-mono flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
       {/* =====================================================================
-          STRICT 3-ZONE TOP BAR CONTRACT
-          [Brand Wordmark] — [5 Single-Line Nav Links] — [1 Primary Action CTA]
+          VARIATION 3: 280px SYSTEMATIC SIDEBAR (Desktop) + Responsive Header (Mobile)
          ===================================================================== */}
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 lg:px-10 py-4 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/90">
-        {/* Zone 1: Single text element wordmark */}
-        <a
-          href="#discover"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveSection('discover');
-          }}
-          className="text-lg font-bold tracking-tight font-display text-white whitespace-nowrap shrink-0"
-        >
-          App and Game Playground
-        </a>
-
-        {/* Zone 2: 5 concise single-line text navigation links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
-          <a
-            href="#discover"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSection('discover');
-            }}
-            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
-              activeSection === 'discover' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
-            }`}
-          >
-            Play Store
-          </a>
-          <a
-            href="#stage"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSection('stage');
-            }}
-            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
-              activeSection === 'stage' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
-            }`}
-          >
-            Arcade Stage
-          </a>
-          <a
-            href="#vision"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSection('vision');
-            }}
-            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
-              activeSection === 'vision' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
-            }`}
-          >
-            Vision Lab
-          </a>
-          <a
-            href="#publish"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSection('publish');
-            }}
-            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
-              activeSection === 'publish' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
-            }`}
-          >
-            Publisher Studio
-          </a>
-          <a
-            href="#payments"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveSection('payments');
-              fetchBackendLedger();
-            }}
-            className={`hover:text-white hover:underline underline-offset-8 transition-colors whitespace-nowrap shrink-0 ${
-              activeSection === 'payments' ? 'text-white underline decoration-indigo-500 decoration-2' : ''
-            }`}
-          >
-            Payments &amp; Ledger
-          </a>
-        </nav>
-
-        {/* Zone 3: 1 primary action */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            onClick={() => setActiveSection('publish')}
-            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Publish to Play Store
-          </button>
-        </div>
-      </header>
-
-      {/* =====================================================================
-          MAIN VIEWPORT CONTAINER (1440px Baseline)
-         ===================================================================== */}
-      <main className="flex-1 max-w-[1360px] w-full mx-auto px-6 lg:px-10 py-8 space-y-12">
-        {/* Account & Workspace Context Bar (100% Real Firestore Numbers Only) */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-800/80">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 font-mono tabular-nums">
-            <span>APPROVED COMMUNITY RELEASES: {communityApps.length}</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              FIRESTORE LAUNCHES: {totalRealPlays > 0 ? totalRealPlays.toLocaleString() : '0 (No launches yet)'}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>UPLOAD FEE: $0.99</span>
-            {isOwnerAdmin && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="text-emerald-400">
-                  OWNER REVIEW QUEUE: {pendingAdminReviewsCount} PENDING
-                </span>
-              </>
-            )}
+      <aside className="border-b lg:border-b-0 lg:border-r border-[rgba(224,226,229,0.1)] p-6 lg:p-8 flex flex-col justify-between bg-white/[0.02] lg:h-screen lg:sticky lg:top-0 lg:overflow-y-auto shrink-0">
+        <div className="space-y-8">
+          {/* Brand Logo in Syne 800 */}
+          <div className="flex items-center justify-between">
+            <a
+              href="#discover"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveSection('discover');
+              }}
+              className="terminal-logo text-white block hover:opacity-90 transition-opacity"
+            >
+              PLAYGROUND<br />
+              <span className="text-[#00ff9d]">TERMINAL</span>
+            </a>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Mobile Section Switcher */}
-            <div className="flex md:hidden items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
-              {(['discover', 'stage', 'vision', 'publish', 'payments'] as ActiveSection[]).map((sec) => (
-                <button
-                  key={sec}
-                  onClick={() => setActiveSection(sec)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded capitalize whitespace-nowrap shrink-0 ${
-                    activeSection === sec ? 'bg-indigo-600 text-white' : 'text-slate-400'
-                  }`}
-                >
-                  {sec === 'discover' ? 'Play Store' : sec}
-                </button>
-              ))}
-            </div>
-
-            {user ? (
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-300 truncate max-w-[240px]">
-                  Signed in as <strong className="text-white">{user.displayName || user.email}</strong>
-                  {isOwnerAdmin ? ' (Owner / Reviewer)' : ''}
-                </span>
-                <button
-                  onClick={logOutUser}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-900 border border-slate-700 rounded-lg hover:text-white transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  Sign Out
-                </button>
-              </div>
-            ) : (
+          {/* Systematic Navigation */}
+          <nav className="space-y-1">
+            <div className="terminal-label mb-2">Navigation</div>
+            {[
+              { id: 'discover', label: '_play_store' },
+              { id: 'stage', label: '_arcade_stage' },
+              { id: 'vision', label: '_vision_lab' },
+              { id: 'publish', label: '_publisher_studio' },
+              { id: 'payments', label: '_payments_ledger' },
+            ].map((item) => (
               <button
-                onClick={signInWithGoogle}
-                className="px-3.5 py-1.5 text-xs font-medium text-slate-200 bg-slate-900 border border-slate-700 rounded-lg hover:border-slate-500 hover:text-white transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                key={item.id}
+                onClick={() => {
+                  setActiveSection(item.id as ActiveSection);
+                  if (item.id === 'payments') fetchBackendLedger();
+                }}
+                className={`w-full text-left py-2.5 px-0 border-b border-[rgba(224,226,229,0.1)] text-xs font-mono transition-all cursor-pointer flex items-center justify-between ${
+                  activeSection === item.id
+                    ? 'text-[#00ff9d] opacity-100 font-bold border-[#00ff9d]'
+                    : 'text-[#e0e2e5] opacity-60 hover:opacity-100 hover:text-white'
+                }`}
               >
-                <LogIn className="w-3.5 h-3.5" />
-                Creator Sign In
+                <span>{item.label}</span>
+                {activeSection === item.id && <span className="text-[#00ff9d] text-xs">●</span>}
               </button>
-            )}
-          </div>
+            ))}
+          </nav>
         </div>
 
+        {/* System Metrics Block & Authentication Action */}
+        <div className="space-y-4 pt-6 border-t border-[rgba(224,226,229,0.1)] lg:border-t-0">
+          <div className="p-3.5 border border-[rgba(224,226,229,0.1)] bg-black/40 text-xs space-y-1 font-mono">
+            <div className="terminal-label">System Metrics</div>
+            <div className="mt-1 text-slate-300">
+              RELEASES: <span className="text-[#00ff9d] font-bold">{communityApps.length}</span>
+            </div>
+            <div className="text-slate-300">
+              LAUNCHES:{' '}
+              <span className="text-white font-bold">
+                {totalRealPlays > 0 ? totalRealPlays.toLocaleString() : '0'}
+              </span>
+            </div>
+            <div className="text-slate-300">
+              UP_FEE: <span className="text-white font-bold">$0.99</span>
+            </div>
+            <div className="text-slate-300">
+              OWNER_PROCEEDS: <span className="text-[#00ff9d] font-bold">100%</span>
+            </div>
+            {isOwnerAdmin && (
+              <div className="text-amber-300 text-[11px] pt-1 border-t border-white/10">
+                OWNER_QUEUE: {pendingAdminReviewsCount} PENDING
+              </div>
+            )}
+          </div>
+
+          {user ? (
+            <div className="space-y-2">
+              <div className="text-[11px] text-slate-400 truncate font-mono">
+                USER: <span className="text-white font-medium">{user.displayName || user.email}</span>
+                {isOwnerAdmin && <span className="block text-[#00ff9d] font-bold text-[10px]">OWNER / ADMIN</span>}
+              </div>
+              <button
+                onClick={logOutUser}
+                className="terminal-btn w-full text-xs py-2 hover:border-rose-400 hover:text-rose-300"
+              >
+                <LogOut className="w-3.5 h-3.5 mr-1 inline" />
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={signInWithGoogle}
+              className="terminal-btn terminal-btn-fill w-full py-2.5 text-xs flex items-center justify-center gap-1.5"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              Creator Sign In
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* =====================================================================
+          MAIN CONTENT AREA (Scrollable, Systematic UI)
+         ===================================================================== */}
+      <main className="flex-1 overflow-y-auto px-4 sm:px-8 lg:px-12 py-8 space-y-10">
         {/* ===================================================================
-            VIEW 1: PLAY STORE FRONTEND & APP MARKETPLACE
+            VIEW 1: PLAY STORE FRONTEND & APP MARKETPLACE (Variation 3 Systematic)
            =================================================================== */}
         {activeSection === 'discover' && (
-          <div className="space-y-12">
-            {/* Split-Column Play Store Hero */}
-            <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch bg-[#111827] border border-slate-800 rounded-2xl p-6 lg:p-10">
-              <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-xs font-mono text-indigo-400">
-                    <span>PLAYGROUND PLAY STORE</span>
-                    <span aria-hidden="true">·</span>
-                    <span>OWNER-REVIEWED RELEASES &amp; 85% CREATOR PAYOUTS</span>
-                  </div>
-                  <h1
-                    className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold font-display text-white tracking-tight leading-[1.15]"
-                    style={{ textWrap: 'balance' }}
-                  >
-                    The Play Store for web apps, indie games, and developer tools.
-                  </h1>
-                  <p className="text-base text-slate-300 leading-relaxed max-w-2xl">
-                    Every customer app submitted through the Publisher Studio completes our Google Play–style safety and
-                    content rating questionnaire and is reviewed exclusively by the platform owner before going live in
-                    this Play Store catalog. Launch free builds in your browser, or purchase a{' '}
-                    <strong className="text-white font-semibold">Creator Supporter Pass</strong> /{' '}
-                    <strong className="text-white font-semibold">Commercial App License</strong>.
-                  </p>
-                </div>
+          <div className="space-y-10">
+            {/* Systematic Header */}
+            <header>
+              <div className="terminal-label">PLAYGROUND PLAY STORE / APPROVED RELEASES ONLY</div>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold font-display leading-[0.88] tracking-tighter my-2 text-white">
+                SYSTEM CATALOG_
+              </h1>
+            </header>
 
+            {/* Systematic Hero Banner (Variation 3 Grid with Technical Wireframe) */}
+            <section className="hero-banner border border-[rgba(224,226,229,0.1)] bg-gradient-to-br from-white/[0.04] to-transparent p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 items-center">
+              <div className="space-y-5">
+                <p className="text-sm sm:text-base text-slate-300 opacity-90 leading-relaxed max-w-2xl font-mono">
+                  The Play Store for web apps, indie games, and developer tools. Every app completes our safety questionnaire and is reviewed exclusively by the owner. Purchase a <span className="text-[#00ff9d] font-bold">Developer AI Pass</span> or <span className="text-[#00ff9d] font-bold">Commercial App License</span> to unlock premium features.
+                </p>
                 <div className="flex flex-wrap items-center gap-3 pt-2">
                   <button
                     onClick={() => handleLaunchApp(BUILT_IN_APPS[0])}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn terminal-btn-fill"
                   >
-                    <Play className="w-4 h-4" />
-                    Launch Sandbox: Starlight Tactics
+                    Launch Sandbox
                   </button>
                   <button
                     onClick={() => setActiveSection('publish')}
-                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn"
                   >
-                    <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-                    Submit Your App ($0.99 Upload)
+                    Submit App ($0.99)
                   </button>
                   <button
-                    onClick={() => handleOpenCheckout(BUILT_IN_APPS[0], true)}
-                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-200 border border-amber-700/60 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                    onClick={handleOpenDeveloperPassCheckout}
+                    className="terminal-btn border-amber-400 text-amber-300 hover:bg-amber-400/10"
                   >
-                    <CreditCard className="w-4 h-4 text-amber-400" />
-                    Preview Supporter Pass Perks
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 inline mr-1" />
+                    Developer Pass ($3.00)
                   </button>
                 </div>
               </div>
 
-              <div className="lg:col-span-5 group flex flex-col justify-between bg-[#0B0F17] border border-slate-800 hover:border-indigo-500/50 rounded-xl overflow-hidden transition-all duration-300 ease-out transform-gpu hover:scale-[1.015] hover:-translate-y-0.5 shadow-md shadow-black/40 hover:shadow-2xl hover:shadow-indigo-950/60 motion-reduce:transform-none">
-                <div className="overflow-hidden h-56 lg:h-full w-full">
-                  <ArtworkCover
-                    playType="starlight-tactics"
-                    category="Game"
-                    title="Starlight Tactics: Sector Zero"
-                    className="h-full w-full transition-transform duration-500 ease-out group-hover:scale-105 motion-reduce:transform-none"
-                  />
-                </div>
-                <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs text-slate-400 truncate font-mono tabular-nums">
-                      Official Sandbox Template · Everyone 10+ (E10+)
-                    </div>
-                    <div className="text-sm font-semibold text-white truncate">
-                      Starlight Tactics: Sector Zero
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleOpenCheckout(BUILT_IN_APPS[0], true)}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-700/60 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Supporter Pass
-                    </button>
-                    <button
-                      onClick={() => handleLaunchApp(BUILT_IN_APPS[0])}
-                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Play Free
-                    </button>
-                  </div>
+              {/* Technical Systematic Wireframe Box */}
+              <div className="visual-box border border-[rgba(224,226,229,0.15)] bg-black/80 aspect-video lg:aspect-square flex flex-col items-center justify-center p-4 relative overflow-hidden group">
+                <svg viewBox="0 0 100 100" className="w-4/5 h-4/5 opacity-60 text-[#00ff9d]">
+                  <rect x="10" y="10" width="80" height="80" stroke="currentColor" fill="none" strokeWidth="0.75" strokeDasharray="3 2" />
+                  <line x1="10" y1="10" x2="90" y2="90" stroke="currentColor" strokeWidth="0.5" opacity="0.4" />
+                  <line x1="90" y1="10" x2="10" y2="90" stroke="currentColor" strokeWidth="0.5" opacity="0.4" />
+                  <circle cx="50" cy="50" r="30" stroke="currentColor" fill="none" strokeWidth="0.75" />
+                  <circle cx="50" cy="50" r="8" fill="currentColor" opacity="0.3" />
+                  <circle cx="50" cy="50" r="2" fill="currentColor" />
+                </svg>
+                <div className="absolute bottom-2 left-3 right-3 flex justify-between text-[10px] font-mono text-[#00ff9d] opacity-70">
+                  <span>TERMINAL // V3</span>
+                  <span>ONLINE</span>
                 </div>
               </div>
             </section>
 
-            {/* Clear Breakdown of What a Supporter Pass / App License Unlocks */}
-            <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-4">
-                <div>
-                  <div className="text-xs font-mono text-amber-400">
-                    SUPPORTER PASS &amp; COMMERCIAL LICENSE VALUE GUIDE
-                  </div>
-                  <h2 className="text-lg font-bold font-display text-white mt-0.5">
-                    What Buyers Actually Receive When Purchasing a Supporter Pass or App License
-                  </h2>
-                </div>
-                <span className="text-xs font-mono text-emerald-400 tabular-nums">
-                  85% DIRECT TO CREATOR · INSTANT IN-APP UNLOCK
-                </span>
+            {/* Supporter Value Guide (Variation 3 Strip) */}
+            <div>
+              <div className="terminal-label mb-3">
+                SUPPORTER VALUE GUIDE <span className="payout-pill">100% OWNER PROCEEDS</span>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
-                  <div className="font-mono text-amber-300 font-semibold">1. TACTICAL GAMES PASS</div>
-                  <div className="text-white font-semibold">Commander Overdrive + Heavy Ion Cannon</div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Boosts turn Action Points from 3 AP to <strong className="text-slate-200">4 AP per turn</strong> and
-                    unlocks the <strong className="text-slate-200">Heavy Ion Cannon (50 DMG)</strong> button inside the
-                    game HUD.
-                  </p>
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="guide-item border-l-2 border-[#00ff9d] bg-[#00ff9d]/5 p-4 space-y-1">
+                  <div className="font-bold text-xs text-white">1. GAMES PASS</div>
+                  <div className="text-[11px] text-[#e0e2e5] opacity-70">Unlocks 4 AP Turn-rate &amp; Heavy Ion Cannon</div>
                 </div>
-
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
-                  <div className="font-mono text-indigo-300 font-semibold">2. AUDIO SYNTH LICENSE ($4.99)</div>
-                  <div className="text-white font-semibold">Cyber-Arpeggio Preset + JSON Loop Export</div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Unlocks the 1-click <strong className="text-slate-200">Load Pro Preset</strong> harmonic sequencer
-                    pattern and <strong className="text-slate-200">Export Loop JSON</strong> studio file download.
-                  </p>
+                <div className="guide-item border-l-2 border-[#00ff9d] bg-[#00ff9d]/5 p-4 space-y-1">
+                  <div className="font-bold text-xs text-white">2. AUDIO LICENSE</div>
+                  <div className="text-[11px] text-[#e0e2e5] opacity-70">Harmonic Presets &amp; Export Loop JSON</div>
                 </div>
-
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
-                  <div className="font-mono text-emerald-300 font-semibold">3. WORD PUZZLE PASS</div>
-                  <div className="text-white font-semibold">1-Click Auto-Reveal Word + Gold Tiles</div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Unlocks unlimited <strong className="text-slate-200">Auto-Reveal Target Word</strong> solver
-                    assists and golden supporter tile styling in Botanica Word.
-                  </p>
+                <div className="guide-item border-l-2 border-[#00ff9d] bg-[#00ff9d]/5 p-4 space-y-1">
+                  <div className="font-bold text-xs text-white">3. PUZZLE PASS</div>
+                  <div className="text-[11px] text-[#e0e2e5] opacity-70">Auto-Reveal Target Word &amp; Gold Tiles</div>
                 </div>
-
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-4 space-y-1.5">
-                  <div className="font-mono text-cyan-300 font-semibold">4. VERIFIED RECEIPT &amp; PAYOUT</div>
-                  <div className="text-white font-semibold">Permanent Unlock + 85% Creator Share</div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Issues an itemized <code className="font-mono text-slate-200">RCPT-*</code> receipt stored in
-                    Firestore, permanently unlocks the app on your account, and routes 85% to the publisher.
-                  </p>
+                <div className="guide-item border-l-2 border-[#00ff9d] bg-[#00ff9d]/5 p-4 space-y-1">
+                  <div className="font-bold text-xs text-white">4. RECEIPT VERIFY</div>
+                  <div className="text-[11px] text-[#e0e2e5] opacity-70">Firestore &amp; Cloud SQL Immutable ID</div>
                 </div>
-              </div>
-            </section>
+              </section>
+            </div>
 
-            {/* Search & Segmented Category Filter Controls */}
-            <section className="space-y-6">
+            {/* Directory Filter by Tag & Search Bar */}
+            <div className="space-y-4 pt-4 border-t border-[rgba(224,226,229,0.1)]">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold font-display text-white">
-                    01. Play Store App &amp; Game Directory
-                  </h2>
-                  <p className="text-sm text-slate-400 mt-1">
-                    Showing real Firestore metrics only. Community submissions appear here once reviewed and approved by
-                    the platform owner.
-                  </p>
+                <div className="space-y-1">
+                  <div className="terminal-label text-[#e0e2e5] opacity-90">Directory: Filter by Tag</div>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {CATEGORIES.map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3 py-1 text-xs font-mono border transition-all cursor-pointer ${
+                          selectedCategory === cat
+                            ? 'bg-[#00ff9d] text-[#0b0c0e] font-bold border-[#00ff9d]'
+                            : 'bg-white/[0.02] border-[rgba(224,226,229,0.1)] text-[#e0e2e5] opacity-70 hover:opacity-100 hover:border-[#00ff9d]/50'
+                        }`}
+                      >
+                        {cat === 'All'
+                          ? `_all (${communityApps.length + BUILT_IN_APPS.length})`
+                          : cat === 'My Published'
+                            ? `_my_submissions (${mySubmittedApps.length})`
+                            : `_${cat.toLowerCase().replace(/\s+/g, '_')}`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Search Input */}
-                <div className="relative w-full md:w-72">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <div className="bg-white/[0.03] border border-[rgba(224,226,229,0.15)] px-3 py-2 flex items-center gap-2 text-xs font-mono shrink-0">
+                  <span className="text-slate-400">SEARCH:</span>
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search Play Store apps, games, studios..."
-                    className="w-full pl-9 pr-4 py-2 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    placeholder="_"
+                    className="bg-transparent border-none text-[#00ff9d] font-mono focus:outline-none w-44 sm:w-56 placeholder-[#00ff9d]/40"
                   />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Functional Segmented Filter Bar */}
-              <div className="flex items-center gap-1 p-1 bg-[#111827] border border-slate-800 rounded-lg overflow-x-auto">
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      selectedCategory === cat
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {cat === 'All'
-                      ? `All Approved Apps (${communityApps.length + BUILT_IN_APPS.length})`
-                      : cat === 'My Published'
-                        ? `My Submissions (${mySubmittedApps.length})`
-                        : cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* Live Community Published Banner (shows real Firestore counts and empty state) */}
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+              {/* Live Community Published Banner */}
+              <div className="border border-[rgba(224,226,229,0.1)] bg-white/[0.02] p-4 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-0.5">
-                  <div className="text-xs font-mono text-emerald-400">
-                    LIVE FIRESTORE PLAY STORE FEED ·{' '}
+                  <div className="terminal-label text-[#00ff9d]">
+                    LIVE FIRESTORE PLAY STORE FEED //{' '}
                     {communityApps.length > 0
                       ? `${communityApps.length} APPROVED COMMUNITY RELEASES`
                       : 'NO APPROVED COMMUNITY RELEASES YET'}
                   </div>
-                  <p className="text-xs text-slate-300">
+                  <p className="text-xs text-[#e0e2e5] opacity-70">
                     {communityApps.length > 0
-                      ? 'Approved community-published apps are live in the Play Store grid below with real Firestore launch counts.'
-                      : 'No community apps have been approved yet. Submit an app in the Publisher Studio to send your questionnaire to the platform owner for approval.'}
+                      ? 'Approved community-published apps are live in the catalog below with verified launch metrics.'
+                      : 'No community apps approved yet. Complete the safety questionnaire in Publisher Studio to submit for owner review.'}
                   </p>
                 </div>
                 <button
                   onClick={() => setActiveSection('publish')}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn terminal-btn-fill py-1.5 px-3 text-xs"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 inline mr-1" />
                   Submit App for Owner Review
                 </button>
               </div>
 
-              {/* 3-Column Play Store Catalog Grid */}
+              {/* App Grid */}
               {loadingApps ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {[1, 2, 3].map((n) => (
                     <div
                       key={n}
-                      className="h-80 bg-[#111827] border border-slate-800 rounded-xl animate-pulse p-5 flex flex-col justify-end"
+                      className="h-80 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] animate-pulse p-5 flex flex-col justify-end"
                     >
-                      <div className="h-4 bg-slate-800 rounded w-1/2 mb-2" />
-                      <div className="h-3 bg-slate-800 rounded w-3/4" />
+                      <div className="h-4 bg-white/10 rounded w-1/2 mb-2" />
+                      <div className="h-3 bg-white/10 rounded w-3/4" />
                     </div>
                   ))}
                 </div>
               ) : filteredApps.length === 0 ? (
-                <div className="bg-[#111827] border border-slate-800 rounded-xl p-12 text-center space-y-4">
-                  <Gamepad2 className="w-8 h-8 text-slate-500 mx-auto" />
+                <div className="border border-[rgba(224,226,229,0.1)] bg-white/[0.02] p-12 text-center space-y-4">
+                  <Gamepad2 className="w-8 h-8 text-[#00ff9d]/50 mx-auto" />
                   <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-white">No matching apps or games found</h3>
+                    <h3 className="text-base font-bold text-white font-display">No matching apps or games found</h3>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
                       {selectedCategory === 'My Published' && !user
                         ? 'Sign in with Google to view and track the approval status of the apps you have submitted.'
@@ -1868,7 +1804,7 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => setActiveSection('publish')}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn terminal-btn-fill"
                   >
                     Submit First Release
                   </button>
@@ -1877,132 +1813,106 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredApps.map((appItem) => {
                     const isUnlocked = unlockedAppIds.includes(appItem.id) || (user && appItem.authorId === user.uid);
-                    const perkInfo = getSupporterPerksForApp(appItem.playType, appItem.priceCents);
                     return (
-                      <article
+                      <div
                         key={appItem.id}
-                        className="group bg-[#111827] border border-slate-800 hover:border-indigo-500/60 rounded-xl overflow-hidden flex flex-col justify-between transition-all duration-300 ease-out transform-gpu hover:scale-[1.025] hover:-translate-y-1.5 shadow-md shadow-black/40 hover:shadow-2xl hover:shadow-indigo-950/70 motion-reduce:transform-none"
+                        className="terminal-card border border-[rgba(224,226,229,0.1)] bg-white/[0.02] p-5 flex flex-col justify-between transition-all duration-200 hover:border-[#00ff9d] hover:scale-[1.015] shadow-sm hover:shadow-lg hover:shadow-[#00ff9d]/5"
                       >
                         <div>
-                          {/* Card Artwork */}
+                          {/* Visual Box */}
                           <div
-                            onClick={() => handleLaunchApp(appItem)}
-                            className="cursor-pointer border-b border-slate-800/80 overflow-hidden"
+                            onClick={() => setStoreModalApp(appItem)}
+                            className="w-full aspect-video bg-black border border-[rgba(224,226,229,0.1)] mb-4 flex items-center justify-center overflow-hidden cursor-pointer relative group"
+                            title="Click to view App Store details"
                           >
                             <ArtworkCover
                               playType={appItem.playType}
                               category={appItem.category}
                               title={appItem.title}
-                              className="h-48 w-full transition-transform duration-500 ease-out group-hover:scale-105 motion-reduce:transform-none"
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                             />
+                            <div className="absolute top-2 left-2 bg-black/85 px-2 py-0.5 border border-white/10 text-[10px] font-mono text-[#00ff9d]">
+                              {appItem.playType.toUpperCase()}
+                            </div>
                           </div>
 
-                          {/* Card Content — Zero-Pill Unboxed Metadata, Real Firestore Values Only */}
-                          <div className="p-5 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2 text-xs text-slate-400 font-mono tabular-nums">
-                              <div className="flex items-center gap-1.5 truncate">
-                                <span>{appItem.category}</span>
-                                <span aria-hidden="true">·</span>
-                                <span>{appItem.ageRating}</span>
-                                <span aria-hidden="true">·</span>
-                                <span>
-                                  {appItem.isBuiltIn
-                                    ? 'Sandbox Template'
-                                    : appItem.playsCount > 0
-                                      ? `${appItem.playsCount.toLocaleString()} launches`
-                                      : 'No launches yet'}
-                                </span>
-                              </div>
-                              <span className="text-white font-semibold shrink-0">
-                                {isUnlocked
-                                  ? 'PASS ACTIVE'
-                                  : formatPriceCents(appItem.priceCents)}
-                              </span>
-                            </div>
+                          {/* Label */}
+                          <div className="terminal-label flex items-center justify-between text-[11px] mb-1">
+                            <span>{appItem.category.toUpperCase()} · {appItem.ageRating}</span>
+                            <span className="text-white font-bold">
+                              {isUnlocked ? 'PASS ACTIVE' : formatPriceCents(appItem.priceCents, appItem.monetizationModel)}
+                            </span>
+                          </div>
 
-                            <h3 className="text-base font-bold font-display text-white group-hover:text-indigo-300 transition-colors">
-                              <button
-                                onClick={() => handleLaunchApp(appItem)}
-                                className="text-left focus:outline-none cursor-pointer"
-                              >
-                                {appItem.title}
-                              </button>
-                            </h3>
+                          {/* Title */}
+                          <h3
+                            className="font-bold text-white text-base font-sans my-1.5 hover:text-[#00ff9d] transition-colors cursor-pointer"
+                            onClick={() => setStoreModalApp(appItem)}
+                          >
+                            {appItem.title}
+                          </h3>
 
-                            <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
-                              {appItem.tagline}
-                            </p>
+                          {/* Tagline / Description */}
+                          <p className="text-xs text-[#e0e2e5] opacity-60 line-clamp-2 leading-relaxed mb-3">
+                            {appItem.tagline}
+                          </p>
 
-                            {/* Explicit Supporter Pass / License Unlock Line */}
-                            <div className="pt-1 text-[11px] font-mono text-amber-300/90 truncate">
-                              {isUnlocked ? '✓ Unlocked: ' : 'Pass Perk: '}
-                              {perkInfo.perks[0]}
-                            </div>
-
-                            <div className="text-[11px] text-slate-400 font-mono truncate">
+                          {/* Real Firestore stats & status */}
+                          <div className="text-[11px] font-mono text-slate-400 pb-3 flex items-center justify-between border-b border-[rgba(224,226,229,0.1)]">
+                            <span>
                               {appItem.isBuiltIn
-                                ? 'Official Sandbox Template'
-                                : appItem.reviewStatus === 'pending'
-                                  ? 'Pending Owner Review'
-                                  : appItem.reviewStatus === 'denied'
-                                    ? 'Denied by Owner'
-                                    : 'Owner Approved'}{' '}
-                              · {appItem.dataPrivacyPolicy}
+                                ? 'Official Sandbox'
+                                : appItem.playsCount > 0
+                                  ? `${appItem.playsCount.toLocaleString()} launches`
+                                  : 'New Release'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {!appItem.isBuiltIn && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLikeApp(appItem)}
+                                  title="Upvote release"
+                                  className="text-slate-400 hover:text-rose-400 transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Heart className="w-3 h-3 text-rose-400" />
+                                  <span>{appItem.likesCount}</span>
+                                </button>
+                              )}
+                              {user && !appItem.isBuiltIn && appItem.authorId === user.uid && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteApp(appItem)}
+                                  title="Delete your published app"
+                                  className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
 
-                        <div className="px-5 pb-5 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-3">
-                          <div className="text-xs text-slate-400 truncate">
-                            {appItem.authorName}
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {!appItem.isBuiltIn && (
-                              <button
-                                onClick={() => handleLikeApp(appItem)}
-                                title="Upvote release"
-                                className="px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-300 bg-slate-900 border border-slate-700 rounded-md hover:text-rose-300 hover:border-rose-700 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                              >
-                                <Heart className="w-3.5 h-3.5 text-rose-400" />
-                                {appItem.likesCount}
-                              </button>
-                            )}
-                            {user && !appItem.isBuiltIn && appItem.authorId === user.uid && (
-                              <button
-                                onClick={() => handleDeleteApp(appItem)}
-                                title="Delete your published app"
-                                className="p-1.5 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-700 rounded-md transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleOpenCheckout(appItem)}
-                              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800/70 text-xs font-mono font-medium rounded-md transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                            >
-                              <CreditCard className="w-3 h-3" />
-                              {appItem.priceCents > 0 && !isUnlocked
-                                ? `Buy ${formatPriceCents(appItem.priceCents)}`
-                                : isUnlocked
-                                  ? 'Pass Active'
-                                  : 'Supporter Pass'}
-                            </button>
-                            <button
-                              onClick={() => handleLaunchApp(appItem)}
-                              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                            >
-                              <Play className="w-3 h-3" />
-                              Launch
-                            </button>
-                          </div>
+                        {/* Action Buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-3">
+                          <button
+                            onClick={() => handleLaunchApp(appItem)}
+                            className="terminal-btn terminal-btn-fill py-2 text-xs"
+                          >
+                            Run Program
+                          </button>
+                          <button
+                            onClick={() => setStoreModalApp(appItem)}
+                            className="terminal-btn py-2 text-xs"
+                          >
+                            Store Page
+                          </button>
                         </div>
-                      </article>
+                      </div>
                     );
                   })}
                 </div>
               )}
-            </section>
+            </div>
           </div>
         )}
 
@@ -2012,9 +1922,9 @@ export default function App() {
         {activeSection === 'stage' && (
           <div className="space-y-8">
             {/* Stage Selector Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-4 bg-[#111827] border border-slate-800 rounded-xl p-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-4 font-mono">
               <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
+                <div className="terminal-label flex flex-wrap items-center gap-2">
                   <span>ACTIVE STAGE</span>
                   <span aria-hidden="true">·</span>
                   <span>{selectedApp.category}</span>
@@ -2023,15 +1933,15 @@ export default function App() {
                   <span aria-hidden="true">·</span>
                   <span>{selectedApp.ageRating}</span>
                   <span aria-hidden="true">·</span>
-                  <span className="text-emerald-400">{formatPriceCents(selectedApp.priceCents)}</span>
+                  <span className="text-[#00ff9d]">{formatPriceCents(selectedApp.priceCents)}</span>
                 </div>
-                <h2 className="text-xl font-bold font-display text-white">{selectedApp.title}</h2>
+                <h2 className="text-xl sm:text-2xl font-bold font-display text-white">{selectedApp.title}</h2>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => handleOpenCheckout(selectedApp)}
-                  className="px-3.5 py-1.5 text-xs font-semibold text-emerald-200 bg-emerald-950/80 border border-emerald-700/70 rounded-lg hover:bg-emerald-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn border-[#00ff9d] text-[#00ff9d] py-1.5 px-3 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
                   {selectedApp.priceCents > 0
@@ -2042,10 +1952,10 @@ export default function App() {
                   <button
                     key={item.id}
                     onClick={() => setSelectedAppId(item.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`px-3 py-1.5 text-xs font-mono border transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                       selectedApp.id === item.id
-                        ? 'bg-indigo-600 text-white border-indigo-500'
-                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                        ? 'bg-[#00ff9d] text-[#0b0c0e] font-bold border-[#00ff9d]'
+                        : 'bg-white/[0.02] text-slate-300 border-[rgba(224,226,229,0.1)] hover:text-white hover:border-[#00ff9d]/50'
                     }`}
                   >
                     {item.title.split(':')[0]}
@@ -2066,38 +1976,39 @@ export default function App() {
 
             {/* Release Notes, Publisher Questionnaire Disclosure & Community Reviews */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              <div className="lg:col-span-6 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
-                <h3 className="text-base font-bold font-display text-white">
-                  Release Documentation &amp; Publisher Disclosures
+              <div className="lg:col-span-6 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 space-y-4 font-mono">
+                <div className="terminal-label">Release Documentation</div>
+                <h3 className="text-lg font-bold font-display text-white">
+                  Publisher Disclosures &amp; Technical Specs
                 </h3>
-                <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
+                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">
                   {selectedApp.description}
                 </p>
 
-                <div className="pt-3 border-t border-slate-800 grid grid-cols-2 gap-3 text-xs">
+                <div className="pt-3 border-t border-[rgba(224,226,229,0.1)] grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-slate-400 block">Age &amp; Content Rating</span>
+                    <span className="text-slate-400 block text-[11px]">Age &amp; Content Rating</span>
                     <span className="text-white font-medium">{selectedApp.ageRating}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block">Monetization Model</span>
+                    <span className="text-slate-400 block text-[11px]">Monetization Model</span>
                     <span className="text-white font-medium">
                       {selectedApp.monetizationModel} ({formatPriceCents(selectedApp.priceCents)})
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block">Data Privacy Declaration</span>
+                    <span className="text-slate-400 block text-[11px]">Data Privacy Declaration</span>
                     <span className="text-white font-medium">{selectedApp.dataPrivacyPolicy}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block">Accessibility Support</span>
+                    <span className="text-slate-400 block text-[11px]">Accessibility Support</span>
                     <span className="text-white font-medium">{selectedApp.accessibilityFeatures}</span>
                   </div>
                 </div>
 
                 {selectedApp.aiVisualSummary && (
-                  <div className="pt-3 border-t border-slate-800 space-y-1.5">
-                    <div className="text-xs font-mono text-indigo-400">
+                  <div className="pt-3 border-t border-[rgba(224,226,229,0.1)] space-y-1.5">
+                    <div className="text-[11px] font-mono text-[#00ff9d]">
                       GEMINI 4 ARGON VISUAL &amp; ARCHITECTURE SUMMARY
                     </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
@@ -2107,7 +2018,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="lg:col-span-6 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-5">
+              <div className="lg:col-span-6 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 space-y-5 font-mono">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold font-display text-white">
                     Player &amp; Creator Reviews
@@ -2120,12 +2031,12 @@ export default function App() {
                 {selectedApp.isBuiltIn ? (
                   <div className="text-xs text-slate-400 space-y-3">
                     <p>
-                      This is a verified built-in flagship experience included with App and Game Playground. Publish a
+                      This is a verified built-in flagship experience included with Playground Terminal. Publish a
                       community app in the Publisher Studio to collect live Firestore ratings, reviews, and payments!
                     </p>
                     <button
                       onClick={() => setActiveSection('publish')}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      className="terminal-btn terminal-btn-fill py-2 px-4 text-xs"
                     >
                       Complete Questionnaire &amp; Publish
                     </button>
@@ -2133,7 +2044,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-4">
                     {user ? (
-                      <form onSubmit={handleReviewSubmit} className="space-y-3 pb-4 border-b border-slate-800">
+                      <form onSubmit={handleReviewSubmit} className="space-y-3 pb-4 border-b border-[rgba(224,226,229,0.1)]">
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-slate-300">Rating:</label>
                           <div className="flex items-center gap-1">
@@ -2158,22 +2069,22 @@ export default function App() {
                           value={reviewComment}
                           onChange={(e) => setReviewComment(e.target.value)}
                           placeholder="Share feedback on gameplay, controls, or features (2-600 chars)..."
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                          className="w-full px-3 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                         />
                         <button
                           type="submit"
                           disabled={submittingReview || reviewComment.trim().length < 2}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                          className="terminal-btn terminal-btn-fill py-2 px-4 text-xs"
                         >
                           {submittingReview ? 'Posting Review...' : 'Post Review'}
                         </button>
                       </form>
                     ) : (
-                      <div className="text-xs text-slate-400 pb-3 border-b border-slate-800 flex items-center justify-between">
+                      <div className="text-xs text-slate-400 pb-3 border-b border-[rgba(224,226,229,0.1)] flex items-center justify-between">
                         <span>Sign in with Google to rate and review this release.</span>
                         <button
                           onClick={signInWithGoogle}
-                          className="text-indigo-400 hover:underline font-medium cursor-pointer"
+                          className="text-[#00ff9d] hover:underline font-medium cursor-pointer"
                         >
                           Sign In
                         </button>
@@ -2185,10 +2096,10 @@ export default function App() {
                     ) : (
                       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
                         {reviews.map((rev) => (
-                          <div key={rev.id} className="pb-3 border-b border-slate-800/70 last:border-none space-y-1">
+                          <div key={rev.id} className="pb-3 border-b border-[rgba(224,226,229,0.1)] last:border-none space-y-1">
                             <div className="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums">
-                              <span className="text-white font-sans font-medium">{rev.authorName}</span>
-                              <span>
+                              <span className="text-white font-medium">{rev.authorName}</span>
+                              <span className="text-amber-400">
                                 {'★'.repeat(rev.rating)} · {rev.createdAtLabel}
                               </span>
                             </div>
@@ -2208,18 +2119,18 @@ export default function App() {
             VIEW 3: GEMINI 4 ARGON VISION ANALYZER & PATCH GENERATOR
            =================================================================== */}
         {activeSection === 'vision' && (
-          <div className="space-y-8">
+          <div className="space-y-8 font-mono">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="text-xs font-mono text-indigo-400">
-                  MULTIMODAL IMAGE UNDERSTANDING · MODEL: GEMINI-4-ARGON
+                <div className="terminal-label">
+                  MULTIMODAL IMAGE UNDERSTANDING // MODEL: GEMINI-4-ARGON
                 </div>
-                <h2 className="text-2xl font-bold font-display text-white mt-1">
-                  02. Visual App &amp; Screenshot Analyzer
+                <h2 className="text-3xl font-bold font-display text-white mt-1">
+                  SYSTEM VISION LAB_
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
                   Upload any photo, game screenshot, UI mockup, or terminal traceback to run deep visual analysis with{' '}
-                  <code className="text-indigo-300 font-mono">gemini-4-argon</code>, generate a code patch, or autofill
+                  <code className="text-[#00ff9d]">gemini-4-argon</code>, generate a code patch, or autofill
                   your app publishing listing.
                 </p>
               </div>
@@ -2233,9 +2144,9 @@ export default function App() {
                     setUploadedImageLabel(sample.label);
                     setVisionPrompt(sample.defaultPrompt);
                   }}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-[#111827] border border-slate-800 rounded-lg hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn py-1 px-2.5 text-xs"
                 >
-                  Load Game HUD Sample
+                  Load HUD Sample
                 </button>
                 <button
                   onClick={() => {
@@ -2245,9 +2156,9 @@ export default function App() {
                     setUploadedImageLabel(sample.label);
                     setVisionPrompt(sample.defaultPrompt);
                   }}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-[#111827] border border-slate-800 rounded-lg hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn py-1 px-2.5 text-xs"
                 >
-                  Load Issue #3060 Traceback
+                  Load #3060 Traceback
                 </button>
                 <button
                   onClick={() => {
@@ -2257,16 +2168,24 @@ export default function App() {
                     setUploadedImageLabel(sample.label);
                     setVisionPrompt(sample.defaultPrompt);
                   }}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-[#111827] border border-slate-800 rounded-lg hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn py-1 px-2.5 text-xs"
                 >
                   Load OrbitHop Concept
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenDeveloperPassCheckout}
+                  className="terminal-btn border-amber-400 text-amber-300 py-1 px-2.5 text-xs flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  Developer Pass ($3.00)
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Left Column: Image Upload & Prompt Configuration */}
-              <div className="lg:col-span-5 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-5">
+              <div className="lg:col-span-5 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 space-y-5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-mono text-slate-400">
                     SOURCE IMAGE ({uploadedImageLabel || 'Ready'})
@@ -2274,7 +2193,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 text-xs font-semibold text-indigo-300 bg-indigo-950/70 border border-indigo-700/60 rounded-lg hover:bg-indigo-900 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn py-1 px-3 text-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5" />
                     Upload Photo
@@ -2291,18 +2210,18 @@ export default function App() {
                 {/* Image Preview Frame */}
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="relative rounded-lg overflow-hidden border border-slate-800 bg-[#0B0F17] cursor-pointer group"
+                  className="relative overflow-hidden border border-[rgba(224,226,229,0.15)] bg-black/80 cursor-pointer group"
                 >
                   {uploadedImageDataUrl ? (
                     <img
                       src={uploadedImageDataUrl}
                       alt={uploadedImageLabel || 'Uploaded preview for Gemini 4 Argon analysis'}
                       referrerPolicy="no-referrer"
-                      className="w-full h-56 object-contain bg-[#090D16]"
+                      className="w-full h-56 object-contain bg-black"
                     />
                   ) : (
                     <div className="h-56 flex flex-col items-center justify-center text-xs text-slate-500 gap-2">
-                      <Upload className="w-6 h-6 text-slate-400" />
+                      <Upload className="w-6 h-6 text-[#00ff9d]/60" />
                       <span>Click to upload a photo or screenshot</span>
                     </div>
                   )}
@@ -2310,18 +2229,18 @@ export default function App() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-medium text-slate-300">
-                    Analysis Instructions for <code className="font-mono text-indigo-300">gemini-4-argon</code>
+                    Analysis Instructions for <code className="font-mono text-[#00ff9d]">gemini-4-argon</code>
                   </label>
                   <textarea
                     rows={3}
                     value={visionPrompt}
                     onChange={(e) => setVisionPrompt(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3.5 py-2.5 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d] font-mono"
                   />
                 </div>
 
                 {visionError && (
-                  <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-200 flex items-start gap-2">
+                  <div className="p-3 bg-rose-950/60 border border-rose-800 text-xs text-rose-200 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                     <span>{visionError}</span>
                   </div>
@@ -2331,7 +2250,7 @@ export default function App() {
                   type="button"
                   onClick={() => handleAnalyzeWithGeminiArgon('general')}
                   disabled={visionLoading}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="terminal-btn terminal-btn-fill w-full py-2.5 px-4 text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
                 >
                   <Sparkles className="w-4 h-4" />
                   {visionLoading ? 'Analyzing Image with Gemini 4 Argon...' : 'Analyze Photo with Gemini 4 Argon'}
@@ -2339,20 +2258,20 @@ export default function App() {
               </div>
 
               {/* Right Column: Structured Output & Patch Export */}
-              <div className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-5">
+              <div className="lg:col-span-7 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 space-y-5">
                 {visionLoading ? (
                   <div className="space-y-4 py-8">
-                    <div className="h-5 bg-slate-800 rounded w-1/3 animate-pulse" />
-                    <div className="h-4 bg-slate-800 rounded w-2/3 animate-pulse" />
-                    <div className="h-24 bg-slate-800 rounded w-full animate-pulse" />
-                    <div className="h-36 bg-slate-800 rounded w-full animate-pulse" />
+                    <div className="h-5 bg-white/10 rounded w-1/3 animate-pulse" />
+                    <div className="h-4 bg-white/10 rounded w-2/3 animate-pulse" />
+                    <div className="h-24 bg-white/10 rounded w-full animate-pulse" />
+                    <div className="h-36 bg-white/10 rounded w-full animate-pulse" />
                   </div>
                 ) : visionResult ? (
                   <div className="space-y-5">
-                    <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-slate-800">
+                    <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-[rgba(224,226,229,0.1)]">
                       <div className="space-y-1">
-                        <div className="text-xs font-mono text-emerald-400">
-                          GEMINI-4-ARGON ANALYSIS COMPLETE · {visionResult.suggestedCategory.toUpperCase()}
+                        <div className="terminal-label text-[#00ff9d]">
+                          GEMINI-4-ARGON ANALYSIS COMPLETE // {visionResult.suggestedCategory.toUpperCase()}
                         </div>
                         <h3 className="text-lg font-bold font-display text-white">
                           {visionResult.suggestedTitle}
@@ -2363,14 +2282,14 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={applyVisionResultToPublishForm}
-                          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                          className="terminal-btn terminal-btn-fill py-1.5 px-3 text-xs flex items-center gap-1.5 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           Use in Publisher Studio
                         </button>
                         <button
                           onClick={downloadVisionPatch}
-                          className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                          className="terminal-btn py-1.5 px-3 text-xs flex items-center gap-1.5 cursor-pointer"
                         >
                           <Download className="w-3.5 h-3.5" />
                           Download .patch
@@ -2379,27 +2298,27 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5">
-                        <div className="text-xs font-mono text-slate-400">VISUAL &amp; UX BREAKDOWN</div>
+                      <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-3.5 space-y-1.5">
+                        <div className="terminal-label">VISUAL &amp; UX BREAKDOWN</div>
                         <p className="text-xs text-slate-200 leading-relaxed">{visionResult.visualSummary}</p>
                       </div>
-                      <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5">
-                        <div className="text-xs font-mono text-slate-400">TECHNICAL DIAGNOSIS</div>
+                      <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-3.5 space-y-1.5">
+                        <div className="terminal-label">TECHNICAL DIAGNOSIS</div>
                         <p className="text-xs text-slate-200 leading-relaxed">{visionResult.technicalDiagnosis}</p>
                       </div>
                     </div>
 
                     {visionResult.extractedText && (
-                      <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1">
-                        <div className="text-xs font-mono text-slate-400">DETECTED TEXT &amp; TELEMETRY</div>
+                      <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-3.5 space-y-1">
+                        <div className="terminal-label">DETECTED TEXT &amp; TELEMETRY</div>
                         <pre className="text-xs font-mono text-slate-300 whitespace-pre-wrap">
                           {visionResult.extractedText}
                         </pre>
                       </div>
                     )}
 
-                    <div className="bg-[#090D16] border border-slate-800 rounded-lg overflow-hidden">
-                      <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
+                    <div className="bg-black/60 border border-[rgba(224,226,229,0.15)] overflow-hidden">
+                      <div className="px-4 py-2 bg-black/80 border-b border-[rgba(224,226,229,0.1)] flex items-center justify-between text-xs font-mono text-slate-400">
                         <span>GENERATED PATCH / ENHANCEMENT DIFF</span>
                         <button
                           onClick={() => {
@@ -2407,10 +2326,10 @@ export default function App() {
                             setCopiedGeneratedPatch(true);
                             setTimeout(() => setCopiedGeneratedPatch(false), 2000);
                           }}
-                          className="text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer"
+                          className="text-[#00ff9d] hover:text-white flex items-center gap-1 cursor-pointer"
                         >
                           {copiedGeneratedPatch ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <Check className="w-3.5 h-3.5 text-[#00ff9d]" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
                           )}
@@ -2424,9 +2343,9 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="py-14 text-center space-y-3">
-                    <FileCode2 className="w-8 h-8 text-slate-500 mx-auto" />
+                    <FileCode2 className="w-8 h-8 text-[#00ff9d]/50 mx-auto" />
                     <div className="space-y-1">
-                      <h3 className="text-sm font-semibold text-white">
+                      <h3 className="text-sm font-semibold text-white font-display">
                         Ready for Gemini 4 Argon Visual Inspection
                       </h3>
                       <p className="text-xs text-slate-400 max-w-md mx-auto">
@@ -2449,16 +2368,16 @@ export default function App() {
           <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="text-xs font-mono text-indigo-400">
-                  GOOGLE PLAY CONTENT RATING QUESTIONNAIRE · OWNER-ONLY REVIEW ({OWNER_ADMIN_EMAIL})
+                <div className="terminal-label">
+                  GOOGLE PLAY CONTENT RATING QUESTIONNAIRE // OWNER-ONLY REVIEW ({OWNER_ADMIN_EMAIL})
                 </div>
-                <h2 className="text-2xl font-bold font-display text-white mt-1">
-                  03. Publisher Safety Questionnaire &amp; App Submission Studio
+                <h2 className="text-3xl font-bold font-display text-white mt-1">
+                  SYSTEM PUBLISHER STUDIO_
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  All customers uploading an app or game must complete the Google Play–style safety and content rating
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                  All creators uploading an app or game must complete the Google Play–style safety and content rating
                   questionnaire below. Every submission is reviewed exclusively by the platform owner (
-                  <code className="font-mono text-indigo-300">{OWNER_ADMIN_EMAIL}</code>), who is the only person
+                  <code className="text-[#00ff9d]">{OWNER_ADMIN_EMAIL}</code>), who is the only person
                   authorized to accept or deny apps for the public Play Store catalog.
                 </p>
               </div>
@@ -2466,18 +2385,18 @@ export default function App() {
 
             {/* STRICT OWNER-ONLY REVIEW & APPROVAL CONSOLE (redwinemegan61@gmail.com ONLY) */}
             {isOwnerAdmin ? (
-              <div className="bg-[#111827] border border-indigo-700/80 rounded-xl p-6 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="bg-black/40 border border-[#00ff9d]/30 p-6 space-y-5 font-mono">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[rgba(224,226,229,0.1)] pb-4">
                   <div>
-                    <div className="text-xs font-mono text-emerald-400">
-                      OWNER-ONLY MODERATION CONSOLE · AUTHENTICATED AS {OWNER_ADMIN_EMAIL.toUpperCase()}
+                    <div className="terminal-label text-[#00ff9d]">
+                      OWNER-ONLY MODERATION CONSOLE // AUTHENTICATED AS {OWNER_ADMIN_EMAIL.toUpperCase()}
                     </div>
                     <h3 className="text-lg font-bold font-display text-white mt-0.5">
                       Customer App &amp; Safety Questionnaire Review Queue
                     </h3>
                     <p className="text-xs text-slate-300 mt-0.5">
-                      Only you ({OWNER_ADMIN_EMAIL}) can see all customer questionnaires and accept or deny submitted
-                      applications. Approving a submission immediately publishes the linked app to the Play Store.
+                      Only you ({OWNER_ADMIN_EMAIL}) can inspect customer questionnaires and accept or deny submitted
+                      applications. Approving a submission immediately publishes the linked app to the public Play Store catalog.
                     </p>
                   </div>
                   <div className="text-xs font-mono text-slate-300 tabular-nums shrink-0">
@@ -2487,13 +2406,13 @@ export default function App() {
                 </div>
 
                 {reviewActionStatus && (
-                  <div className="p-3 bg-indigo-950/60 border border-indigo-700 rounded-lg text-xs text-indigo-200 font-mono">
+                  <div className="p-3 bg-[#00ff9d]/10 border border-[#00ff9d] text-xs text-[#00ff9d] font-mono">
                     {reviewActionStatus}
                   </div>
                 )}
 
                 {adminQuestionnaires.length === 0 ? (
-                  <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-6 text-center text-xs text-slate-400">
+                  <div className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 text-center text-xs text-slate-400">
                     No customer questionnaires have been submitted yet. When a customer submits an app and safety
                     questionnaire, it will appear here for your exclusive review.
                   </div>
@@ -2505,15 +2424,15 @@ export default function App() {
                       return (
                         <div
                           key={q.id}
-                          className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-3 flex flex-col justify-between"
+                          className="bg-black/50 border border-[rgba(224,226,229,0.1)] p-4 space-y-3 flex flex-col justify-between font-mono"
                         >
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs font-mono">
-                              <span className="text-indigo-300">{q.complianceCertificateId}</span>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-[#00ff9d]">{q.complianceCertificateId}</span>
                               <span
                                 className={
                                   status === 'approved'
-                                    ? 'text-emerald-400 font-semibold'
+                                    ? 'text-[#00ff9d] font-semibold'
                                     : status === 'denied'
                                       ? 'text-rose-400 font-semibold'
                                       : 'text-amber-300 font-semibold'
@@ -2528,12 +2447,12 @@ export default function App() {
                             </div>
                             <div className="text-xs text-slate-300">
                               Studio: <span className="text-white font-medium">{q.studioName}</span> · Support:{' '}
-                              <span className="font-mono text-slate-300">{q.supportContact}</span>
+                              <span className="text-slate-300">{q.supportContact}</span>
                             </div>
 
                             {/* Google Play Content Rating Breakdown */}
-                            <div className="bg-[#111827] border border-slate-800/90 rounded-lg p-3 space-y-1 text-xs font-mono text-slate-300">
-                              <div className="text-indigo-300 font-semibold">
+                            <div className="bg-black/80 border border-[rgba(224,226,229,0.1)] p-3 space-y-1 text-xs text-slate-300">
+                              <div className="text-[#00ff9d] font-semibold">
                                 CALCULATED GOOGLE PLAY RATING: {q.ageRating}
                               </div>
                               <div>
@@ -2582,22 +2501,22 @@ export default function App() {
                                 }))
                               }
                               placeholder="Optional owner review note (saved to Firestore)..."
-                              className="w-full px-3 py-1.5 bg-[#111827] border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                              className="w-full px-3 py-1.5 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                             />
                           </div>
 
-                          <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
+                          <div className="flex items-center gap-2 pt-2 border-t border-[rgba(224,226,229,0.1)]">
                             <button
                               type="button"
                               onClick={() => handleOwnerReviewDecision(q, 'approved')}
-                              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                              className="terminal-btn terminal-btn-fill flex-1 py-1.5 px-3 text-xs"
                             >
                               Approve &amp; Publish to Play Store
                             </button>
                             <button
                               type="button"
                               onClick={() => handleOwnerReviewDecision(q, 'denied')}
-                              className="flex-1 py-2 px-3 bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-800 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                              className="terminal-btn border-rose-600 text-rose-400 hover:bg-rose-950/40 flex-1 py-1.5 px-3 text-xs"
                             >
                               Deny Submission
                             </button>
@@ -2609,22 +2528,22 @@ export default function App() {
                 )}
               </div>
             ) : (
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono">
                 <div className="space-y-1">
-                  <div className="text-xs font-mono text-amber-300">
-                    EXCLUSIVE OWNER REVIEW POLICY · REVIEWED ONLY BY {OWNER_ADMIN_EMAIL.toUpperCase()}
+                  <div className="terminal-label text-amber-300">
+                    EXCLUSIVE OWNER REVIEW POLICY // REVIEWED ONLY BY {OWNER_ADMIN_EMAIL.toUpperCase()}
                   </div>
                   <div className="text-sm font-bold font-display text-white">
                     Your Questionnaire &amp; App Submission Are Reviewed Strictly by the Platform Owner
                   </div>
-                  <p className="text-xs text-slate-400 max-w-3xl">
+                  <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
                     After you complete the Google Play content rating &amp; safety questionnaire below and submit your
                     app, your questionnaire is locked so only the platform owner ({OWNER_ADMIN_EMAIL}) can inspect it
                     and accept or deny publication to the public Play Store catalog.
                   </p>
                 </div>
                 {mySubmittedApps.length > 0 && (
-                  <div className="text-xs font-mono text-slate-300 shrink-0 bg-[#0B0F17] border border-slate-800 rounded-lg px-3.5 py-2.5">
+                  <div className="text-xs font-mono text-slate-300 shrink-0 bg-black/40 border border-[rgba(224,226,229,0.1)] px-3.5 py-2.5">
                     YOUR SUBMISSIONS: {mySubmittedApps.filter((a) => a.reviewStatus === 'approved').length} APPROVED ·{' '}
                     {mySubmittedApps.filter((a) => (a.reviewStatus || 'pending') === 'pending').length} PENDING ·{' '}
                     {mySubmittedApps.filter((a) => a.reviewStatus === 'denied').length} DENIED
@@ -3052,18 +2971,22 @@ export default function App() {
 
                     <div className="space-y-1.5">
                       <label className="block text-xs font-medium text-slate-300">
-                        13. Creator Payout Rail *
+                        13. Creator Monetization / Rail *
                       </label>
                       <select
                         value={qPayoutMethod}
                         onChange={(e) => setQPayoutMethod(e.target.value as PayoutMethod)}
                         className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
                       >
-                        <option value="Stripe Connect Express (85% Creator / 15% Platform)">
-                          Stripe Connect Express (85% / 15%)
+                        <option value="Direct External Stripe Link (Zero Platform Cut)">
+                          Direct External Stripe Link (Zero Platform Cut)
                         </option>
-                        <option value="Instant Card Payout">Instant Card Payout</option>
-                        <option value="Open-Source Community Grant">Open-Source Community Grant</option>
+                        <option value="Free / Open-Source (No Monetization)">
+                          Free / Open-Source (No Monetization)
+                        </option>
+                        <option value="Platform Pass & Host Listing">
+                          Platform Pass & Host Listing
+                        </option>
                       </select>
                     </div>
                   </div>
@@ -3118,49 +3041,111 @@ export default function App() {
                         className="mt-0.5 accent-indigo-500"
                       />
                       <span>
-                        16. I accept the App and Game Playground Publisher Distribution Agreement ($0.99 per app upload
-                        fee, 85% Creator / 15% Platform sales split, and exclusive review &amp; approval by{' '}
+                        16. I accept the App and Game Playground Publisher Distribution Agreement (Flat $0.99 upload fee
+                        paid directly to platform owner, optional direct creator tip link, and exclusive review &amp; approval by{' '}
                         <code className="font-mono text-indigo-300">{OWNER_ADMIN_EMAIL}</code>).
                       </span>
                     </label>
                   </div>
 
-                  {/* $0.99 Customer App Upload & Deployment Fee Step */}
-                  <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="text-xs font-mono text-amber-300 font-semibold">
-                        CUSTOMER APP UPLOAD &amp; DEPLOYMENT FEE · $0.99 PER RELEASE
+                  {/* Deployment Tier & Fee Step */}
+                  {isOwnerAdmin ? (
+                    <div className="bg-emerald-950/40 border border-emerald-600/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="text-xs font-mono text-emerald-300 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>PLATFORM OWNER PRIVILEGE · UNLIMITED 100% FREE APP PUBLISHING</span>
+                        </div>
+                        <p className="text-xs text-slate-300">
+                          As the platform owner (<strong className="text-white">{OWNER_ADMIN_EMAIL}</strong>), the $0.99 customer upload fee is <strong>100% waived</strong>. You can publish your own apps immediately to the public Play Store catalog for free.
+                        </p>
                       </div>
-                      <p className="text-xs text-slate-300">
-                        {uploadFeePaid
-                          ? '✓ Your $0.99 upload fee is paid and verified! Click below to submit for owner review.'
-                          : 'Uploading a customer app for review and deployment is a flat $0.99 (99 cents) per upload.'}
-                      </p>
+                      <div className="text-xs font-mono text-emerald-300 bg-[#0B0F17] px-3.5 py-2 rounded-lg border border-emerald-800 shrink-0">
+                        FEE: $0.00 (OWNER WAIVED)
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {platformStripeLink ? (
-                        <a
-                          href={platformStripeLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                  ) : (
+                    <div className="space-y-3">
+                      <label className="block text-xs font-medium text-slate-300">
+                        Select Publishing Deployment Option *
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPublishDeploymentTier('free-community')}
+                          className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                            publishDeploymentTier === 'free-community'
+                              ? 'bg-indigo-950/60 border-indigo-500 text-white shadow-sm'
+                              : 'bg-[#0B0F17] border-slate-800 text-slate-400 hover:text-white'
+                          }`}
                         >
-                          Pay $0.99 on Stripe ↗
-                        </a>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={handleOpenUploadFeeCheckout}
-                        className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap cursor-pointer ${
-                          uploadFeePaid
-                            ? 'bg-emerald-950/70 border-emerald-700 text-emerald-300'
-                            : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
-                        }`}
-                      >
-                        {uploadFeePaid ? '✓ $0.99 Upload Paid' : 'Pay $0.99 Upload Fee'}
-                      </button>
+                          <div className="flex items-center justify-between text-xs font-mono font-semibold">
+                            <span className="text-indigo-300">1. FREE COMMUNITY EDITION</span>
+                            <span className="text-emerald-400">$0.00 FREE</span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                            Publish your game or app 100% free with zero upload fees for the community to play in-browser.
+                          </p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setPublishDeploymentTier('commercial-standard')}
+                          className={`p-3.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                            publishDeploymentTier === 'commercial-standard'
+                              ? 'bg-indigo-950/60 border-indigo-500 text-white shadow-sm'
+                              : 'bg-[#0B0F17] border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-xs font-mono font-semibold">
+                            <span className="text-amber-300">2. COMMERCIAL STORE DEPLOY</span>
+                            <span className="text-amber-300">$0.99 ONE-TIME</span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                            Includes verified Google Play compliance certificate, Stripe checkout link routing, and direct sales.
+                          </p>
+                        </button>
+                      </div>
+
+                      {publishDeploymentTier === 'commercial-standard' && (
+                        <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="space-y-1">
+                            <div className="text-xs font-mono text-amber-300 font-semibold">
+                              COMMERCIAL APP UPLOAD FEE · $0.99 PER RELEASE
+                            </div>
+                            <p className="text-xs text-slate-300">
+                              {uploadFeePaid
+                                ? '✓ Your $0.99 upload fee is verified! Click below to submit for owner review.'
+                                : 'Commercial deployment is a flat $0.99 (99 cents) per release.'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {platformStripeLink && (
+                              <a
+                                href={platformStripeLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                              >
+                                Pay $0.99 on Stripe ↗
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleOpenUploadFeeCheckout}
+                              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap cursor-pointer ${
+                                uploadFeePaid
+                                  ? 'bg-emerald-950/70 border-emerald-700 text-emerald-300'
+                                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
+                              }`}
+                            >
+                              {uploadFeePaid ? '✓ $0.99 Upload Paid' : 'Pay $0.99 Upload Fee'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
@@ -3182,11 +3167,13 @@ export default function App() {
                     <Layers className="w-4 h-4" />
                     {isPublishing
                       ? 'Submitting...'
-                      : uploadFeePaid
-                        ? isOwnerAdmin
-                          ? 'Verify Questionnaire & Publish App Immediately'
-                          : 'Submit App & Questionnaire for Owner Review'
-                        : 'Pay $0.99 & Submit App for Owner Review'}
+                      : isOwnerAdmin
+                        ? 'Publish App Free as Platform Owner ($0.00)'
+                        : publishDeploymentTier === 'free-community' || qMonetization === 'Free to Play'
+                          ? 'Submit Free App for Owner Review ($0.00)'
+                          : uploadFeePaid
+                            ? 'Submit App for Owner Review'
+                            : 'Pay $0.99 & Submit App for Owner Review'}
                   </button>
                 </div>
               </form>
@@ -3277,16 +3264,16 @@ export default function App() {
             VIEW 5: PAYMENTS, CREATOR PAYOUTS & QUESTIONNAIRE COMPLIANCE LEDGER
            =================================================================== */}
         {activeSection === 'payments' && (
-          <div className="space-y-8">
+          <div className="space-y-8 font-mono">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="text-xs font-mono text-indigo-400">
-                  BACKEND PAYMENT ENGINE &amp; FIRESTORE TRANSACTION LEDGER
+                <div className="terminal-label">
+                  BACKEND PAYMENT ENGINE // FIRESTORE TRANSACTION LEDGER
                 </div>
-                <h2 className="text-2xl font-bold font-display text-white mt-1">
-                  04. Payments, Creator Payouts &amp; Compliance Certificates
+                <h2 className="text-3xl font-bold font-display text-white mt-1">
+                  SYSTEM PAYMENTS &amp; LEDGER_
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
                   Inspect real-time payment processing telemetry from the Express payment gateway, view your personal
                   purchase receipts, and track completed Publisher Questionnaires.
                 </p>
@@ -3294,7 +3281,7 @@ export default function App() {
 
               <button
                 onClick={handleOpenUploadFeeCheckout}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                className="terminal-btn terminal-btn-fill py-2 px-4 text-xs flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <CreditCard className="w-4 h-4" />
                 Pay $0.99 App Upload Fee
@@ -3305,18 +3292,18 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               <form
                 onSubmit={handleSaveStripePaymentLink}
-                className="lg:col-span-7 bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-3"
+                className="lg:col-span-7 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-5 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-mono text-indigo-400">
-                    STRIPE PAYMENT LINK INTEGRATION · DIRECT CHECKOUT ROUTING
+                  <div className="terminal-label">
+                    STRIPE PAYMENT LINK INTEGRATION // DIRECT CHECKOUT ROUTING
                   </div>
-                  <span className="text-xs font-mono text-emerald-400">
+                  <span className="text-xs font-mono text-[#00ff9d]">
                     {platformStripeLink ? 'LINK ACTIVE' : 'READY TO LINK'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Paste your Stripe Payment Link (<code className="font-mono text-indigo-300">https://buy.stripe.com/...</code>)
+                <p className="text-xs text-slate-300 leading-relaxed font-mono">
+                  Paste your Stripe Payment Link (<code className="text-[#00ff9d]">https://buy.stripe.com/...</code>)
                   below (or share it in chat) to link it to every Supporter Pass and App License checkout button across
                   the platform.
                 </p>
@@ -3326,24 +3313,24 @@ export default function App() {
                     value={stripeLinkInput}
                     onChange={(e) => setStripeLinkInput(e.target.value)}
                     placeholder="https://buy.stripe.com/..."
-                    className="flex-1 px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    className="flex-1 px-3.5 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn terminal-btn-fill py-2 px-4 text-xs whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     Connect Stripe Link
                   </button>
                 </div>
                 {stripeSaveNotice && (
-                  <div className="text-xs text-emerald-300 font-mono">{stripeSaveNotice}</div>
+                  <div className="text-xs text-[#00ff9d] font-mono">{stripeSaveNotice}</div>
                 )}
               </form>
 
-              <div className="lg:col-span-5 bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-3">
+              <div className="lg:col-span-5 bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-5 flex flex-col justify-between space-y-3 font-mono">
                 <div className="space-y-1.5">
-                  <div className="text-xs font-mono text-emerald-400">
-                    WEB PLATFORM PRODUCTION STATUS · LIVE ON CLOUD RUN &amp; FIRESTORE
+                  <div className="terminal-label text-[#00ff9d]">
+                    WEB PLATFORM PRODUCTION STATUS // LIVE ON CLOUD RUN &amp; FIRESTORE
                   </div>
                   <div className="text-sm font-bold font-display text-white">
                     Immediate Web Deployment Active (No Testing Gate)
@@ -3357,7 +3344,7 @@ export default function App() {
                     type="text"
                     readOnly
                     value={LIVE_SHARED_WEB_URL}
-                    className="flex-1 px-3 py-1.5 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono text-slate-300"
+                    className="flex-1 px-3 py-1.5 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs font-mono text-slate-300"
                   />
                   <button
                     type="button"
@@ -3366,10 +3353,10 @@ export default function App() {
                       setCopiedLiveUrl(true);
                       setTimeout(() => setCopiedLiveUrl(false), 2000);
                     }}
-                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn py-1.5 px-3 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    {copiedLiveUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedLiveUrl ? 'Copied URL' : 'Copy Live URL'}
+                    {copiedLiveUrl ? <Check className="w-3.5 h-3.5 text-[#00ff9d]" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedLiveUrl ? 'Copied' : 'Copy Live URL'}
                   </button>
                 </div>
               </div>
@@ -3377,10 +3364,10 @@ export default function App() {
 
             {/* 4-Column Backend Gateway KPI Strip */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
-                <div className="text-xs font-mono text-slate-400">GATEWAY GROSS VOLUME</div>
+              <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 space-y-1">
+                <div className="terminal-label">GATEWAY GROSS VOLUME</div>
                 <div className="text-2xl font-bold font-mono tabular-nums text-white">
-                  {formatPriceCents(
+                  {formatCurrencyCents(
                     (backendLedger?.totalVolumeCents || 0) +
                       userPayments.reduce((acc, p) => acc + p.amountCents, 0)
                   )}
@@ -3388,31 +3375,39 @@ export default function App() {
                 <div className="text-xs text-slate-400">Processed via /api/payments/execute</div>
               </div>
 
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
-                <div className="text-xs font-mono text-slate-400">CREATOR NET PAYOUTS (85%)</div>
-                <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">
-                  {formatPriceCents(
-                    (backendLedger?.totalCreatorPayoutCents || 0) +
-                      creatorSales.reduce((acc, p) => acc + p.creatorNetCents, 0)
-                  )}
-                </div>
-                <div className="text-xs text-slate-400">Direct creator distribution</div>
-              </div>
-
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
-                <div className="text-xs font-mono text-slate-400">PLATFORM HOSTING FEE (15%)</div>
-                <div className="text-2xl font-bold font-mono tabular-nums text-indigo-300">
-                  {formatPriceCents(
+              <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 space-y-1">
+                <div className="terminal-label">OWNER NET REVENUE (100% MEGAN)</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-[#00ff9d]">
+                  {formatCurrencyCents(
                     (backendLedger?.totalPlatformFeeCents || 0) +
-                      userPayments.reduce((acc, p) => acc + p.platformFeeCents, 0)
+                      userPayments
+                        .filter(
+                          (p) =>
+                            p.paymentType === 'Publisher Upload Fee ($0.99)' ||
+                            p.paymentType === 'Developer AI Studio Pass'
+                        )
+                        .reduce((acc, p) => acc + p.amountCents, 0)
                   )}
                 </div>
-                <div className="text-xs text-slate-400">Sandbox &amp; CDN bandwidth</div>
+                <div className="text-xs text-slate-400">100% of Upload Fees &amp; AI Studio Passes</div>
               </div>
 
-              <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-1">
-                <div className="text-xs font-mono text-slate-400">VERIFIED QUESTIONNAIRES</div>
+              <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 space-y-1">
+                <div className="terminal-label">APP UPLOAD FEES ($0.99 FLAT)</div>
                 <div className="text-2xl font-bold font-mono tabular-nums text-white">
+                  {formatCurrencyCents(
+                    (backendLedger?.totalUploadFeesCents || 0) +
+                      userPayments
+                        .filter((p) => p.paymentType === 'Publisher Upload Fee ($0.99)')
+                        .reduce((acc, p) => acc + p.amountCents, 0)
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">Flat $0.99 listing fee to platform owner</div>
+              </div>
+
+              <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 space-y-1">
+                <div className="terminal-label">VERIFIED QUESTIONNAIRES</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-[#00ff9d]">
                   {myQuestionnaires.length}
                 </div>
                 <div className="text-xs text-slate-400">Active compliance certificates</div>
@@ -3437,7 +3432,7 @@ export default function App() {
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-white">No payment transactions recorded yet</div>
                       <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                        Pay a $0.99 customer app upload fee, purchase an app license, or send a Creator Supporter Pass
+                        Pay a $0.99 customer app upload fee, purchase a Developer AI Studio Pass ($3.00), or tip a creator
                         to see live backend settlement and Firestore receipt records here.
                       </p>
                     </div>
@@ -3448,9 +3443,9 @@ export default function App() {
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400 font-mono">
                           <th className="py-3 px-4">RECEIPT</th>
-                          <th className="py-3 px-4">RELEASE</th>
+                          <th className="py-3 px-4">ITEM / APP</th>
                           <th className="py-3 px-4">METHOD</th>
-                          <th className="py-3 px-4 text-right">CREATOR (85%)</th>
+                          <th className="py-3 px-4 text-right">REVENUE SHARE</th>
                           <th className="py-3 px-4 text-right">TOTAL</th>
                         </tr>
                       </thead>
@@ -3463,10 +3458,13 @@ export default function App() {
                               {pay.cardBrand} •••• {pay.cardLast4}
                             </td>
                             <td className="py-3 px-4 text-right text-emerald-400">
-                              {formatPriceCents(pay.creatorNetCents)}
+                              {pay.paymentType === 'Publisher Upload Fee ($0.99)' ||
+                              pay.paymentType === 'Developer AI Studio Pass'
+                                ? '100% Owner'
+                                : 'Direct Tip'}
                             </td>
                             <td className="py-3 px-4 text-right text-white font-semibold">
-                              {formatPriceCents(pay.amountCents)}
+                              {formatCurrencyCents(pay.amountCents)}
                             </td>
                           </tr>
                         ))}
@@ -3479,10 +3477,13 @@ export default function App() {
                                 {r.cardBrand} •••• {r.cardLast4}
                               </td>
                               <td className="py-3 px-4 text-right text-emerald-400">
-                                {formatPriceCents(r.creatorNetCents)}
+                                {r.paymentType === 'Publisher Upload Fee ($0.99)' ||
+                                r.paymentType === 'Developer AI Studio Pass'
+                                  ? '100% Owner'
+                                  : 'Direct Tip'}
                               </td>
                               <td className="py-3 px-4 text-right text-white font-semibold">
-                                {formatPriceCents(r.amountCents)}
+                                {formatCurrencyCents(r.amountCents)}
                               </td>
                             </tr>
                           ))}
@@ -3556,12 +3557,12 @@ export default function App() {
           CONTIGUOUS PAYMENT CHECKOUT MODAL (/api/payments/create-intent + execute)
          ===================================================================== */}
       {checkoutApp && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111827] border border-slate-700 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0b0c0e] border border-[rgba(224,226,229,0.2)] max-w-lg w-full p-6 space-y-5 shadow-2xl font-mono">
+            <div className="flex items-start justify-between gap-4 pb-3 border-b border-[rgba(224,226,229,0.1)]">
               <div>
-                <div className="text-xs font-mono text-indigo-400">
-                  PLAYGROUND COMMERCE GATEWAY · 85% CREATOR PAYOUT
+                <div className="terminal-label">
+                  PLAYGROUND COMMERCE GATEWAY // SECURE DIRECT CHECKOUT
                 </div>
                 <h3 className="text-lg font-bold font-display text-white mt-0.5">
                   {checkoutApp.title}
@@ -3570,7 +3571,7 @@ export default function App() {
               </div>
               <button
                 onClick={() => setCheckoutApp(null)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3578,18 +3579,18 @@ export default function App() {
 
             {settledReceipt ? (
               <div className="space-y-5">
-                <div className="bg-emerald-950/50 border border-emerald-700/70 rounded-xl p-4 space-y-2">
-                  <div className="flex items-center gap-2 text-emerald-300 font-semibold text-sm">
+                <div className="bg-[#00ff9d]/10 border border-[#00ff9d] p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-[#00ff9d] font-semibold text-sm">
                     <CheckCircle2 className="w-4 h-4" />
                     Payment Authorized &amp; Settled
                   </div>
-                  <p className="text-xs text-emerald-100/90">
-                    Receipt <code className="font-mono font-bold">{settledReceipt.receiptNumber}</code> has been issued
+                  <p className="text-xs text-slate-200">
+                    Receipt <code className="font-mono font-bold text-[#00ff9d]">{settledReceipt.receiptNumber}</code> has been issued
                     by the backend payment server{user ? ' and saved to your Firestore account ledger.' : '.'}
                   </p>
                 </div>
 
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2 text-xs font-mono tabular-nums">
+                <div className="bg-black/50 border border-[rgba(224,226,229,0.1)] p-4 space-y-2 text-xs font-mono tabular-nums">
                   <div className="flex justify-between text-slate-400">
                     <span>ITEM</span>
                     <span className="text-white">{settledReceipt.paymentType}</span>
@@ -3601,14 +3602,15 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-400">
-                    <span>CREATOR PAYOUT (85%)</span>
-                    <span className="text-emerald-400">{formatPriceCents(settledReceipt.creatorNetCents)}</span>
+                    <span>REVENUE SHARE</span>
+                    <span className="text-[#00ff9d]">
+                      {settledReceipt.paymentType === 'Publisher Upload Fee ($0.99)' ||
+                      settledReceipt.paymentType === 'Developer AI Studio Pass'
+                        ? '100% Platform Owner (Megan)'
+                        : '100% Direct to Creator'}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>PLATFORM FEE (15%)</span>
-                    <span className="text-slate-300">{formatPriceCents(settledReceipt.platformFeeCents)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-bold pt-2 border-t border-slate-800 text-sm">
+                  <div className="flex justify-between text-white font-bold pt-2 border-t border-[rgba(224,226,229,0.1)] text-sm">
                     <span>TOTAL SETTLED</span>
                     <span>{formatPriceCents(settledReceipt.amountCents)} USD</span>
                   </div>
@@ -3622,7 +3624,7 @@ export default function App() {
                       setActiveSection('payments');
                       if (target) setSelectedAppId(target.id);
                     }}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                    className="terminal-btn py-1.5 px-3.5 text-xs cursor-pointer"
                   >
                     View in Payment Ledger
                   </button>
@@ -3632,7 +3634,7 @@ export default function App() {
                       setCheckoutApp(null);
                       if (target) handleLaunchApp(target);
                     }}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    className="terminal-btn terminal-btn-fill py-1.5 px-4 text-xs cursor-pointer"
                   >
                     Launch {checkoutApp.title}
                   </button>
@@ -3646,11 +3648,11 @@ export default function App() {
                   const activeStripeUrl = (checkoutApp.stripePaymentLink || platformStripeLink || '').trim();
                   return (
                     <div className="space-y-3">
-                      <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-xl p-3.5 space-y-2">
-                        <div className="text-xs font-mono text-indigo-300 font-semibold">
-                          WHAT YOU RECEIVE · {perkInfo.headline.toUpperCase()}
+                      <div className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-3.5 space-y-2">
+                        <div className="terminal-label text-[#00ff9d]">
+                          WHAT YOU RECEIVE // {perkInfo.headline.toUpperCase()}
                         </div>
-                        <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside">
+                        <ul className="space-y-1 text-xs text-slate-200 list-disc list-inside font-mono">
                           {perkInfo.perks.map((perk, idx) => (
                             <li key={idx}>{perk}</li>
                           ))}
@@ -3658,8 +3660,8 @@ export default function App() {
                       </div>
 
                       {activeStripeUrl ? (
-                        <div className="bg-emerald-950/40 border border-emerald-700/70 rounded-xl p-3.5 space-y-2.5">
-                          <div className="flex items-center justify-between text-xs font-mono text-emerald-300">
+                        <div className="bg-[#00ff9d]/5 border border-[#00ff9d]/30 p-3.5 space-y-2.5">
+                          <div className="flex items-center justify-between text-xs font-mono text-[#00ff9d]">
                             <span>CONNECTED STRIPE PAYMENT LINK</span>
                             <span>LIVE CHECKOUT</span>
                           </div>
@@ -3668,7 +3670,7 @@ export default function App() {
                               href={activeStripeUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex-1 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg text-center transition-colors whitespace-nowrap"
+                              className="terminal-btn terminal-btn-fill flex-1 py-2 px-3.5 text-xs text-center whitespace-nowrap"
                             >
                               Open Stripe Payment Link ({formatPriceCents(checkoutAmountCents)}) ↗
                             </a>
@@ -3682,30 +3684,32 @@ export default function App() {
                 {/* Tier Selection */}
                 <div className="space-y-2">
                   <label className="block text-xs font-medium text-slate-300">
-                    Select Payment Tier ($0.99 App Upload Fee or Creator Support)
+                    Select Payment Tier ($0.99 App Upload Fee, Developer AI Pass, or Direct Support)
                   </label>
                   <div className="grid grid-cols-3 gap-2 font-mono text-xs tabular-nums">
                     {[
                       {
-                        label: 'App Upload ($0.99)',
+                        label: 'Upload ($0.99)',
                         cents: 99,
                         type: 'Publisher Upload Fee ($0.99)' as const,
                       },
                       {
                         label:
-                          checkoutApp.priceCents > 99
-                            ? `License (${formatPriceCents(checkoutApp.priceCents)})`
-                            : 'Supporter ($3.00)',
-                        cents: checkoutApp.priceCents > 99 ? checkoutApp.priceCents : 300,
+                          checkoutType === 'Developer AI Studio Pass' || checkoutApp.id === 'developer-ai-studio-pass'
+                            ? 'AI Pass ($3.00)'
+                            : checkoutApp.priceCents > 99
+                              ? `License (${formatPriceCents(checkoutApp.priceCents)})`
+                              : 'AI Pass ($3.00)',
+                        cents: 300,
                         type:
-                          checkoutApp.priceCents > 99
-                            ? ('App License Purchase' as const)
-                            : ('Creator Supporter Pass' as const),
+                          checkoutType === 'Developer AI Studio Pass' || checkoutApp.id === 'developer-ai-studio-pass'
+                            ? ('Developer AI Studio Pass' as const)
+                            : ('Developer AI Studio Pass' as const),
                       },
                       {
-                        label: 'Supporter ($5.00)',
+                        label: 'Pro Pass ($5.00)',
                         cents: 500,
-                        type: 'Creator Supporter Pass' as const,
+                        type: 'Developer AI Studio Pass' as const,
                       },
                     ].map((tier) => (
                       <button
@@ -3715,10 +3719,10 @@ export default function App() {
                           setCheckoutAmountCents(tier.cents);
                           setCheckoutType(tier.type);
                         }}
-                        className={`py-2 px-2.5 rounded-lg border text-center transition-colors cursor-pointer ${
+                        className={`py-2 px-2.5 border text-center transition-all cursor-pointer font-mono ${
                           checkoutAmountCents === tier.cents
-                            ? 'bg-indigo-600/20 border-indigo-500 text-white font-semibold'
-                            : 'bg-[#0B0F17] border-slate-800 text-slate-400 hover:text-white'
+                            ? 'bg-[#00ff9d] text-[#0b0c0e] font-bold border-[#00ff9d]'
+                            : 'bg-white/[0.02] border-[rgba(224,226,229,0.1)] text-slate-300 hover:border-[#00ff9d]/50'
                         }`}
                       >
                         {tier.label}
@@ -3728,37 +3732,54 @@ export default function App() {
                 </div>
 
                 {/* Transparent Revenue Breakdown */}
-                <div className="bg-[#0B0F17] border border-slate-800 rounded-lg p-3.5 space-y-1.5 text-xs font-mono tabular-nums">
+                <div className="bg-black/50 border border-[rgba(224,226,229,0.1)] p-3.5 space-y-1.5 text-xs font-mono tabular-nums">
                   {checkoutType === 'Publisher Upload Fee ($0.99)' ? (
                     <>
                       <div className="flex justify-between text-slate-400">
                         <span>CUSTOMER APP UPLOAD &amp; DEPLOYMENT FEE</span>
-                        <span className="text-emerald-400">$0.99</span>
+                        <span className="text-[#00ff9d] font-bold">$0.99</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>OWNER NET PROCEEDS (MEGAN)</span>
+                        <span className="text-[#00ff9d]">100% ($0.99)</span>
                       </div>
                       <div className="flex justify-between text-slate-400">
                         <span>PLAY STORE HOSTING &amp; COMPLIANCE CERTIFICATE</span>
                         <span>INCLUDED</span>
                       </div>
                     </>
+                  ) : checkoutType === 'Developer AI Studio Pass' ? (
+                    <>
+                      <div className="flex justify-between text-slate-400">
+                        <span>DEVELOPER AI STUDIO PASS</span>
+                        <span className="text-[#00ff9d] font-bold">{formatPriceCents(checkoutAmountCents)}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>OWNER NET PROCEEDS (MEGAN)</span>
+                        <span className="text-[#00ff9d]">100% ({formatPriceCents(checkoutAmountCents)})</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>GEMINI 4 ARGON &amp; PATCH FORGE SUITE</span>
+                        <span>UNLOCKED</span>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="flex justify-between text-slate-400">
-                        <span>CREATOR DIRECT SHARE (85%)</span>
-                        <span className="text-emerald-400">
-                          {formatPriceCents(Math.round(checkoutAmountCents * 0.85))}
+                        <span>CREATOR DIRECT SHARE</span>
+                        <span className="text-[#00ff9d] font-bold">
+                          {formatPriceCents(checkoutAmountCents)}
                         </span>
                       </div>
                       <div className="flex justify-between text-slate-400">
-                        <span>PLATFORM INFRASTRUCTURE (15%)</span>
-                        <span>
-                          {formatPriceCents(checkoutAmountCents - Math.round(checkoutAmountCents * 0.85))}
-                        </span>
+                        <span>CREATOR DIRECT STRIPE LINK</span>
+                        <span>100% DIRECT</span>
                       </div>
                     </>
                   )}
-                  <div className="flex justify-between text-white font-bold pt-1.5 border-t border-slate-800">
+                  <div className="flex justify-between text-white font-bold pt-1.5 border-t border-[rgba(224,226,229,0.1)]">
                     <span>TOTAL CHARGE</span>
-                    <span>{formatPriceCents(checkoutAmountCents)} USD</span>
+                    <span className="text-[#00ff9d]">{formatPriceCents(checkoutAmountCents)} USD</span>
                   </div>
                 </div>
 
@@ -3773,7 +3794,7 @@ export default function App() {
                         setCardExpiry('08/29');
                         setCardCvc('842');
                       }}
-                      className="text-[11px] font-mono text-indigo-400 hover:underline cursor-pointer"
+                      className="text-[11px] font-mono text-[#00ff9d] hover:underline cursor-pointer"
                     >
                       Autofill Test Visa (4242)
                     </button>
@@ -3785,7 +3806,7 @@ export default function App() {
                     value={cardholderName}
                     onChange={(e) => setCardholderName(e.target.value)}
                     placeholder="Cardholder Name"
-                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3.5 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                   />
 
                   <input
@@ -3794,7 +3815,7 @@ export default function App() {
                     value={cardNumber}
                     onChange={(e) => setCardNumber(e.target.value)}
                     placeholder="4242 4242 4242 4242"
-                    className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3.5 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs font-mono tabular-nums text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                   />
 
                   <div className="grid grid-cols-2 gap-3">
@@ -3804,7 +3825,7 @@ export default function App() {
                       value={cardExpiry}
                       onChange={(e) => setCardExpiry(e.target.value)}
                       placeholder="MM/YY"
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full px-3.5 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs font-mono tabular-nums text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                     />
                     <input
                       type="text"
@@ -3812,13 +3833,13 @@ export default function App() {
                       value={cardCvc}
                       onChange={(e) => setCardCvc(e.target.value)}
                       placeholder="CVC"
-                      className="w-full px-3.5 py-2 bg-[#0B0F17] border border-slate-800 rounded-lg text-xs font-mono tabular-nums text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full px-3.5 py-2 bg-black/60 border border-[rgba(224,226,229,0.15)] text-xs font-mono tabular-nums text-white placeholder-slate-500 focus:outline-none focus:border-[#00ff9d]"
                     />
                   </div>
                 </div>
 
                 {paymentError && (
-                  <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-200">
+                  <div className="p-3 bg-rose-950/60 border border-rose-800 text-xs text-rose-200">
                     {paymentError}
                   </div>
                 )}
@@ -3827,14 +3848,14 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setCheckoutApp(null)}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                    className="terminal-btn py-1.5 px-3 text-xs cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={processingPayment}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+                    className="terminal-btn terminal-btn-fill py-1.5 px-4 text-xs flex items-center gap-2 cursor-pointer disabled:opacity-40"
                   >
                     <CreditCard className="w-3.5 h-3.5" />
                     {processingPayment
@@ -3846,6 +3867,32 @@ export default function App() {
             )}
           </div>
         </div>
+      )}
+
+      {/* =====================================================================
+          AUTHENTIC GOOGLE PLAY STOREFRONT APP DETAILS & BROWSING MODAL
+         ===================================================================== */}
+      {storeModalApp && (
+        <StorefrontAppDetailsModal
+          app={storeModalApp}
+          isOpen={Boolean(storeModalApp)}
+          onClose={() => setStoreModalApp(null)}
+          onLaunch={(app) => {
+            setStoreModalApp(null);
+            handleLaunchApp(app);
+          }}
+          onOpenCheckout={(app) => {
+            handleOpenCheckout(app);
+          }}
+          isUnlocked={
+            unlockedAppIds.includes(storeModalApp.id) ||
+            Boolean(user && storeModalApp.authorId === user.uid)
+          }
+          user={user}
+          isOwnerAdmin={isOwnerAdmin}
+          onLikeApp={handleLikeApp}
+          onSignInRequired={signInWithGoogle}
+        />
       )}
 
       {/* Quiet Editorial Footer */}

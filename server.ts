@@ -47,7 +47,11 @@ interface ServerPaymentIntent {
   creatorNetCents: number;
   platformFeeCents: number;
   currency: 'USD';
-  paymentType: 'App License Purchase' | 'Creator Supporter Pass' | 'Publisher Upload Fee ($0.99)';
+  paymentType:
+    | 'App License Purchase'
+    | 'Creator Supporter Pass'
+    | 'Publisher Upload Fee ($0.99)'
+    | 'Developer AI Studio Pass';
   status: 'requires_payment_method' | 'succeeded';
   createdAtIso: string;
   receiptNumber?: string;
@@ -98,9 +102,11 @@ app.post('/api/payments/confirm-stripe-link', (req, res) => {
     } = req.body;
 
     const cleanAmount = Math.max(99, Math.min(99999, Math.round(Number(amountCents || 99))));
-    const isUploadFee = paymentType === 'Publisher Upload Fee ($0.99)';
-    const creatorNetCents = isUploadFee ? 0 : Math.round(cleanAmount * 0.85);
-    const platformFeeCents = cleanAmount - creatorNetCents;
+    const isOwnerRevenue =
+      paymentType === 'Publisher Upload Fee ($0.99)' ||
+      paymentType === 'Developer AI Studio Pass';
+    const creatorNetCents = isOwnerRevenue ? 0 : cleanAmount;
+    const platformFeeCents = isOwnerRevenue ? cleanAmount : 0;
     const intentId = `pi_stripe_${crypto.randomBytes(6).toString('hex')}`;
     const receiptNumber = `RCPT-STRIPE-${Date.now().toString(36).toUpperCase()}`;
 
@@ -115,8 +121,8 @@ app.post('/api/payments/confirm-stripe-link', (req, res) => {
       creatorNetCents,
       platformFeeCents,
       currency: 'USD',
-      paymentType: isUploadFee
-        ? 'Publisher Upload Fee ($0.99)'
+      paymentType: isOwnerRevenue
+        ? paymentType
         : paymentType === 'Creator Supporter Pass'
           ? 'Creator Supporter Pass'
           : 'App License Purchase',
@@ -225,8 +231,8 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
 
     const certHash = crypto.randomBytes(4).toString('hex').toUpperCase();
     const complianceCertificateId = `CERT-PG-${new Date().getFullYear()}-${certHash}`;
-    const creatorNetCents = Math.round(numericPrice * 0.85);
-    const platformFeeCents = numericPrice - creatorNetCents;
+    const creatorNetCents = numericPrice;
+    const platformFeeCents = 99; // Flat $0.99 upload fee to platform owner
 
     res.json({
       verified: true,
@@ -251,8 +257,8 @@ app.post('/api/publisher/validate-questionnaire', (req, res) => {
         uploadDeploymentFeeCents: 99,
         priceCents: monetizationModel === 'Free to Play' ? 0 : numericPrice,
         creatorNetCents: monetizationModel === 'Free to Play' ? 0 : creatorNetCents,
-        platformFeeCents: monetizationModel === 'Free to Play' ? 0 : platformFeeCents,
-        revenueShareLabel: '$0.99 Per App Upload Fee · 85% Creator Net / 15% Platform Split',
+        platformFeeCents: 99,
+        revenueShareLabel: 'Flat $0.99 App Upload Fee · 100% to Platform Owner (Megan)',
       },
     });
   } catch (err: unknown) {
@@ -283,9 +289,11 @@ app.post('/api/payments/create-intent', (req, res) => {
       return;
     }
 
-    const isUploadFee = paymentType === 'Publisher Upload Fee ($0.99)';
-    const creatorNetCents = isUploadFee ? 0 : Math.round(cleanAmount * 0.85);
-    const platformFeeCents = cleanAmount - creatorNetCents;
+    const isOwnerRevenue =
+      paymentType === 'Publisher Upload Fee ($0.99)' ||
+      paymentType === 'Developer AI Studio Pass';
+    const creatorNetCents = isOwnerRevenue ? 0 : cleanAmount;
+    const platformFeeCents = isOwnerRevenue ? cleanAmount : 0;
     const intentId = `pi_pg_${crypto.randomBytes(8).toString('hex')}`;
 
     const intent: ServerPaymentIntent = {
@@ -299,8 +307,8 @@ app.post('/api/payments/create-intent', (req, res) => {
       creatorNetCents,
       platformFeeCents,
       currency: 'USD',
-      paymentType: isUploadFee
-        ? 'Publisher Upload Fee ($0.99)'
+      paymentType: isOwnerRevenue
+        ? paymentType
         : paymentType === 'Creator Supporter Pass'
           ? 'Creator Supporter Pass'
           : 'App License Purchase',
@@ -391,6 +399,12 @@ app.get('/api/payments/ledger', (_req, res) => {
   const totalVolumeCents = completedReceipts.reduce((acc, r) => acc + r.amountCents, 0);
   const totalCreatorPayoutCents = completedReceipts.reduce((acc, r) => acc + r.creatorNetCents, 0);
   const totalPlatformFeeCents = completedReceipts.reduce((acc, r) => acc + r.platformFeeCents, 0);
+  const totalUploadFeesCents = completedReceipts
+    .filter((r) => r.paymentType === 'Publisher Upload Fee ($0.99)')
+    .reduce((acc, r) => acc + r.amountCents, 0);
+  const totalDeveloperPassCents = completedReceipts
+    .filter((r) => r.paymentType === 'Developer AI Studio Pass')
+    .reduce((acc, r) => acc + r.amountCents, 0);
 
   res.json({
     gatewayStatus: 'ACTIVE',
@@ -399,6 +413,8 @@ app.get('/api/payments/ledger', (_req, res) => {
     totalVolumeCents,
     totalCreatorPayoutCents,
     totalPlatformFeeCents,
+    totalUploadFeesCents,
+    totalDeveloperPassCents,
     recentReceipts: completedReceipts.slice(0, 10),
   });
 });

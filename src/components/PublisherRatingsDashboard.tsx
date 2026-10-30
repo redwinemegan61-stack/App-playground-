@@ -38,8 +38,8 @@ interface StarBucketDatum {
 }
 
 const STAR_COLORS: Record<number, string> = {
-  5: '#10B981', // Emerald 500
-  4: '#6366F1', // Indigo 500
+  5: '#00ff9d', // Neon Terminal Green
+  4: '#10B981', // Emerald 500
   3: '#06B6D4', // Cyan 500
   2: '#F59E0B', // Amber 500
   1: '#F43F5E', // Rose 500
@@ -209,22 +209,22 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
   return (
     <section
       aria-label="Publisher Player Feedback and Star Rating Distribution"
-      className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-6"
+      className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-6 space-y-6 font-mono"
     >
       {/* Header Row & Scope Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[rgba(224,226,229,0.1)] pb-5">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-mono text-indigo-400">
+          <div className="terminal-label flex items-center gap-1.5 text-[#00ff9d]">
             <BarChart3 className="w-3.5 h-3.5" />
-            <span>REAL-TIME FIRESTORE TELEMETRY · 100% VERIFIED PLAYER FEEDBACK</span>
+            <span>REAL-TIME FIRESTORE TELEMETRY // 100% VERIFIED PLAYER FEEDBACK</span>
           </div>
-          <h3 className="text-lg font-bold font-display text-white">
-            Player Feedback &amp; Star Rating Distribution
+          <h3 className="text-xl font-bold font-display text-white">
+            PLAYER FEEDBACK &amp; STAR DISTRIBUTION_
           </h3>
-          <p className="text-xs text-slate-400 max-w-3xl">
-            Live star rating distribution (<span className="font-mono text-slate-300">1 ★</span> to{' '}
-            <span className="font-mono text-slate-300">5 ★</span>) aggregated directly from Firestore{' '}
-            <code className="font-mono text-indigo-300">/apps/&#123;appId&#125;/reviews</code> documents. Zero synthetic
+          <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
+            Live star rating distribution (<span className="text-[#00ff9d]">1 ★</span> to{' '}
+            <span className="text-[#00ff9d]">5 ★</span>) aggregated directly from Firestore{' '}
+            <code className="text-[#00ff9d]">/apps/&#123;appId&#125;/reviews</code> documents. Zero synthetic
             or placeholder numbers are ever shown.
           </p>
         </div>
@@ -232,20 +232,20 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
         {/* Scope & App Filter Controls */}
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           {isOwnerAdmin && (
-            <div className="flex items-center gap-1 p-1 bg-[#0B0F17] border border-slate-800 rounded-lg">
+            <div className="flex items-center gap-1 p-1 bg-black/60 border border-[rgba(224,226,229,0.15)]">
               <button
                 type="button"
                 onClick={() => {
                   setOwnerScope('my-apps');
                   setSelectedAppFilter('all');
                 }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
                   ownerScope === 'my-apps'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-[#00ff9d] text-[#0b0c0e] font-bold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                My Published Apps ({mySubmittedApps.length})
+                _my_apps ({mySubmittedApps.length})
               </button>
               <button
                 type="button"
@@ -253,13 +253,13 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                   setOwnerScope('all-community');
                   setSelectedAppFilter('all');
                 }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-mono transition-all cursor-pointer ${
                   ownerScope === 'all-community'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-[#00ff9d] text-[#0b0c0e] font-bold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                All Customer Apps ({adminAllApps.length || communityApps.length})
+                _all_releases ({adminAllApps.length || communityApps.length})
               </button>
             </div>
           )}
@@ -317,10 +317,10 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
         </div>
       ) : (
         <>
-          {/* 4-Card Real Telemetry KPI Strip (Max 3 data points per card, 24px gap) */}
+          {/* 4-Card Real Telemetry KPI Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-1">
-              <div className="text-[11px] font-mono text-slate-400">AVERAGE STAR RATING</div>
+            <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-4 space-y-1">
+              <div className="terminal-label">AVERAGE STAR RATING</div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold font-display text-white tabular-nums">
                   {averageRating !== null ? `${averageRating} ★` : 'No ratings yet'}
@@ -333,9 +333,9 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
               </div>
             </div>
 
-            <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-1">
-              <div className="text-[11px] font-mono text-slate-400">TOTAL VERIFIED REVIEWS</div>
-              <div className="text-2xl font-bold font-display text-indigo-400 tabular-nums">
+            <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-4 space-y-1">
+              <div className="terminal-label">TOTAL VERIFIED REVIEWS</div>
+              <div className="text-2xl font-bold font-display text-[#00ff9d] tabular-nums">
                 {totalRealReviews}
               </div>
               <div className="text-xs text-slate-400 font-mono tabular-nums">
@@ -345,9 +345,9 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
               </div>
             </div>
 
-            <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-1">
-              <div className="text-[11px] font-mono text-slate-400">POSITIVE SENTIMENT (4★–5★)</div>
-              <div className="text-2xl font-bold font-display text-emerald-400 tabular-nums">
+            <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-4 space-y-1">
+              <div className="terminal-label">POSITIVE SENTIMENT (4★–5★)</div>
+              <div className="text-2xl font-bold font-display text-[#00ff9d] tabular-nums">
                 {positiveShare !== null ? `${positiveShare}%` : '—'}
               </div>
               <div className="text-xs text-slate-400 font-mono tabular-nums">
@@ -357,8 +357,8 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
               </div>
             </div>
 
-            <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-1">
-              <div className="text-[11px] font-mono text-slate-400">TRACKED RELEASES</div>
+            <div className="bg-black/40 border border-[rgba(224,226,229,0.1)] p-4 space-y-1">
+              <div className="terminal-label">TRACKED RELEASES</div>
               <div className="text-2xl font-bold font-display text-white tabular-nums">
                 {selectedAppFilter === 'all' ? targetApps.length : 1}
               </div>
@@ -373,10 +373,10 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
           {/* Main 12-Col Analytics Grid: Left 7 Cols Recharts Distribution + Right 5 Cols Real Review Feed */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Left 7 Cols: Recharts BarChart + Interactive 5★–1★ Breakdown */}
-            <div className="lg:col-span-7 bg-[#0B0F17] border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-5">
+            <div className="lg:col-span-7 bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 flex flex-col justify-between space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs font-mono text-slate-400">
+                  <div className="terminal-label">
                     RECHARTS STAR DISTRIBUTION HISTOGRAM (1 ★ TO 5 ★)
                   </div>
                   <div className="text-sm font-bold font-display text-white mt-0.5">
@@ -389,7 +389,7 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                   <button
                     type="button"
                     onClick={() => setSelectedStarFilter(null)}
-                    className="text-xs font-mono text-indigo-300 hover:text-white underline cursor-pointer self-start sm:self-auto"
+                    className="text-xs font-mono text-[#00ff9d] hover:text-white underline cursor-pointer self-start sm:self-auto"
                   >
                     Clear {selectedStarFilter} ★ filter
                   </button>
@@ -404,30 +404,30 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                     layout="vertical"
                     margin={{ top: 8, right: 28, left: 8, bottom: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(224,226,229,0.1)" horizontal={false} />
                     <XAxis
                       type="number"
                       allowDecimals={false}
                       domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
                       tick={{ fill: '#94A3B8', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}
-                      axisLine={{ stroke: '#1E293B' }}
-                      tickLine={{ stroke: '#1E293B' }}
+                      axisLine={{ stroke: 'rgba(224,226,229,0.1)' }}
+                      tickLine={{ stroke: 'rgba(224,226,229,0.1)' }}
                     />
                     <YAxis
                       type="category"
                       dataKey="shortLabel"
                       width={48}
                       tick={{ fill: '#F8FAFC', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}
-                      axisLine={{ stroke: '#1E293B' }}
+                      axisLine={{ stroke: 'rgba(224,226,229,0.1)' }}
                       tickLine={false}
                     />
                     <Tooltip
-                      cursor={{ fill: 'rgba(99, 102, 241, 0.08)' }}
+                      cursor={{ fill: 'rgba(0, 255, 157, 0.05)' }}
                       content={({ active, payload }) => {
                         if (!active || !payload || payload.length === 0) return null;
                         const item = payload[0].payload as StarBucketDatum;
                         return (
-                          <div className="bg-[#0B0F17] border border-slate-700 rounded-lg px-3.5 py-2.5 shadow-xl text-xs font-mono space-y-1">
+                          <div className="bg-[#0b0c0e] border border-[rgba(224,226,229,0.2)] px-3.5 py-2.5 shadow-xl text-xs font-mono space-y-1">
                             <div className="text-white font-semibold flex items-center gap-1.5">
                               <span style={{ color: item.color }}>●</span>
                               <span>{item.label}</span>
@@ -444,8 +444,8 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                     />
                     <Bar
                       dataKey="count"
-                      radius={[0, 6, 6, 0]}
-                      barSize={22}
+                      radius={[0, 4, 4, 0]}
+                      barSize={20}
                       onClick={(barItem) => {
                         const payload = barItem?.payload as StarBucketDatum | undefined;
                         if (payload && typeof payload.star === 'number') {
@@ -471,7 +471,7 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
 
                 {totalRealReviews === 0 && (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="bg-[#111827]/95 border border-slate-800 rounded-lg px-4 py-2.5 text-center space-y-0.5 shadow-lg">
+                    <div className="bg-black/90 border border-[rgba(224,226,229,0.15)] px-4 py-2.5 text-center space-y-0.5 shadow-lg">
                       <div className="text-xs font-mono text-amber-300">
                         0 REAL PLAYER REVIEWS RECORDED YET
                       </div>
@@ -484,7 +484,7 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
               </div>
 
               {/* Interactive Tabular Progress Rows for 5★ down to 1★ */}
-              <div className="space-y-2 pt-2 border-t border-slate-800/80">
+              <div className="space-y-2 pt-2 border-t border-[rgba(224,226,229,0.1)]">
                 {distributionData.map((bucket) => {
                   const isSelected = selectedStarFilter === bucket.star;
                   return (
@@ -494,18 +494,18 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                       onClick={() =>
                         setSelectedStarFilter((prev) => (prev === bucket.star ? null : bucket.star))
                       }
-                      className={`w-full flex items-center gap-3 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-colors cursor-pointer ${
+                      className={`w-full flex items-center gap-3 px-2.5 py-1.5 text-xs font-mono transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-indigo-950/60 border border-indigo-700/70 text-white'
-                          : 'hover:bg-slate-900/80 text-slate-300 border border-transparent'
+                          ? 'bg-[#00ff9d]/10 border border-[#00ff9d] text-white'
+                          : 'hover:bg-white/[0.04] text-slate-300 border border-transparent'
                       }`}
                     >
                       <span className="w-10 text-left font-semibold text-white tabular-nums">
                         {bucket.shortLabel}
                       </span>
-                      <div className="flex-1 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800/80">
+                      <div className="flex-1 h-2 bg-black rounded-none overflow-hidden border border-[rgba(224,226,229,0.15)]">
                         <div
-                          className="h-full transition-all duration-300 rounded-full"
+                          className="h-full transition-all duration-300"
                           style={{
                             width: `${bucket.percentage}%`,
                             backgroundColor: bucket.color,
@@ -522,33 +522,33 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
             </div>
 
             {/* Right 5 Cols: Real Player Review Stream & Direct Stage Action */}
-            <div className="lg:col-span-5 bg-[#0B0F17] border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div className="lg:col-span-5 bg-black/40 border border-[rgba(224,226,229,0.1)] p-5 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center justify-between border-b border-[rgba(224,226,229,0.1)] pb-3">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-indigo-400" />
-                    <span className="text-xs font-mono text-slate-300">
+                    <MessageSquare className="w-4 h-4 text-[#00ff9d]" />
+                    <span className="terminal-label">
                       {selectedStarFilter !== null
                         ? `FILTERED: ${selectedStarFilter} ★ REVIEWS (${filteredReviewList.length})`
                         : `VERIFIED PLAYER FEEDBACK (${filteredReviewList.length})`}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 text-amber-400">
+                  <div className="flex items-center gap-1 text-amber-400 font-mono">
                     <Star className="w-3.5 h-3.5 fill-amber-400" />
-                    <span className="text-xs font-mono tabular-nums text-white">
+                    <span className="text-xs tabular-nums text-white">
                       {averageRating !== null ? averageRating : '—'}
                     </span>
                   </div>
                 </div>
 
                 {filteredReviewList.length === 0 ? (
-                  <div className="bg-[#111827] border border-slate-800/90 rounded-xl p-5 space-y-2 text-center my-4">
+                  <div className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-5 space-y-2 text-center my-4">
                     <div className="text-xs font-mono text-slate-400">
                       {selectedStarFilter !== null
                         ? `0 REVIEWS WITH ${selectedStarFilter} ★`
                         : '0 VERIFIED PLAYER REVIEWS IN FIRESTORE'}
                     </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">
+                    <p className="text-xs text-slate-400 leading-relaxed font-mono">
                       {selectedStarFilter !== null
                         ? `None of your real player reviews have a ${selectedStarFilter}-star rating yet.`
                         : 'We never display fake or placeholder reviews. When real signed-in players launch your app on the Arcade Stage and submit a star rating, their feedback will appear here immediately.'}
@@ -559,17 +559,17 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
                     {filteredReviewList.slice(0, 25).map((rev) => (
                       <div
                         key={`${rev.appId}-${rev.id}`}
-                        className="bg-[#111827] border border-slate-800 rounded-lg p-3.5 space-y-1.5"
+                        className="bg-white/[0.02] border border-[rgba(224,226,229,0.1)] p-3.5 space-y-1.5 font-mono"
                       >
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-semibold text-white">{rev.authorName}</span>
-                          <span className="font-mono text-amber-400 tabular-nums">
+                          <span className="text-amber-400 tabular-nums">
                             {'★'.repeat(rev.rating)}
                             {'☆'.repeat(Math.max(0, 5 - rev.rating))} · {rev.rating}/5
                           </span>
                         </div>
                         <p className="text-xs text-slate-300 leading-relaxed">{rev.comment}</p>
-                        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
                           <span>App: {rev.appTitle}</span>
                           <span>{rev.createdAtLabel}</span>
                         </div>
@@ -580,14 +580,14 @@ export const PublisherRatingsDashboard: React.FC<PublisherRatingsDashboardProps>
               </div>
 
               {currentlySelectedAppObj && (
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
+                <div className="pt-3 border-t border-[rgba(224,226,229,0.1)] flex items-center justify-between gap-3">
                   <div className="text-[11px] font-mono text-slate-400 truncate">
-                    Target: <span className="text-slate-200">{currentlySelectedAppObj.title}</span>
+                    Target: <span className="text-[#00ff9d]">{currentlySelectedAppObj.title}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => onOpenAppInStage(currentlySelectedAppObj)}
-                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                    className="terminal-btn terminal-btn-fill py-1.5 px-3 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                     Open in Arcade Stage
